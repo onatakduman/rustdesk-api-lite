@@ -40,13 +40,24 @@ jobs:
       - name: Build the image for x86-64 and ARM64 and push it
         env:
           GH_TOKEN: ${{ github.token }}
+          # Docker Hub is optional: with the DOCKERHUB_TOKEN secret set, the same image also
+          # goes to docker.io/<the DOCKERHUB_USERNAME variable, or the repository owner>/<name>.
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || github.repository_owner }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          tags="-t $image:$GITHUB_REF_NAME"
-          # A pre-release such as v0.2.0-rc1 does not become "latest".
-          case "$GITHUB_REF_NAME" in *-*) ;; *) tags="$tags -t $image:latest" ;; esac
+          images="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            images="$images docker.io/${DOCKERHUB_USERNAME,,}/${GITHUB_REPOSITORY#*/}"
+          fi
+          tags=
+          for image in $images; do
+            tags="$tags -t $image:$GITHUB_REF_NAME"
+            # A pre-release such as v0.2.0-rc1 does not become "latest".
+            case "$GITHUB_REF_NAME" in *-*) ;; *) tags="$tags -t $image:latest" ;; esac
+          done
           docker buildx create --use
           docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
             --build-arg VERSION="$GITHUB_REF_NAME" $tags --push .

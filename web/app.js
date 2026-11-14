@@ -48,6 +48,9 @@ const TR = {
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
   'Language': 'Dil', 'devices': 'cihaz', 'online': 'çevrimiçi', 'users': 'kullanıcı', 'address book entries': 'adres defteri kaydı', 'Overview': 'Genel durum',
   'All address books': 'Tüm adres defterleri',
+  'Copy to another address book': 'Başka deftere kopyala', 'Copy': 'Kopyala', 'Remove {0} entries from this address book?': '{0} kayıt bu adres defterinden kaldırılsın mı?',
+  'Add tags': 'Etiket ekle', 'Remove tags': 'Etiket kaldır', 'Change tags of {0} entries': '{0} kaydın etiketlerini değiştir', 'This address book has no tags yet.': 'Bu defterde henüz etiket yok.',
+  'Saved passwords are not copied. Tags the other book does not have are left out.': 'Kayıtlı parolalar kopyalanmaz. Diğer defterde olmayan etiketler atlanır.', '{0} copied': '{0} kopyalandı', 'Export': 'Dışa aktar',
   'Select': 'Seç', '{0} selected': '{0} seçili', 'Add {0} devices to an address book': '{0} cihazı adres defterine ekle', 'Devices that are already in the book are skipped.': 'Defterde zaten olan cihazlar atlanır.',
   '{0} added, {1} already there': '{0} eklendi, {1} zaten vardı', 'Forget {0} devices? They come back when they report again.': '{0} cihaz unutulsun mu? Yeniden bildirim yapınca geri gelirler.',
   'Clear': 'Temizle', 'Everyone in {0}': '{0} grubundaki herkes', 'People': 'Kişiler',
@@ -285,13 +288,13 @@ function loginView() {
 }
 
 // ---------- address books ----------
-const ab = { guid: null, tags: new Set(), q: '', mode: localStorage.getItem('rdl-view') || 'tiles' };
+const ab = { guid: null, tags: new Set(), q: '', sel: new Set(), mode: localStorage.getItem('rdl-view') || 'tiles' };
 async function booksView(main) {
   const all = state.user.is_admin && localStorage.getItem('rdl-allbooks') === '1';
   const [{ address_books: books }, { devices }] = await Promise.all([api('GET', '/address-books' + (all ? '?all=1' : '')), api('GET', '/devices')]);
   const { arg } = route();
   const cur = books.find(b => b.guid === arg) || books.find(b => b.guid === ab.guid) || books[0];
-  if (cur.guid !== ab.guid) { ab.guid = cur.guid; ab.tags = new Set(); ab.q = ''; }
+  if (cur.guid !== ab.guid) { ab.guid = cur.guid; ab.tags = new Set(); ab.q = ''; ab.sel = new Set(); }
   const data = await api('GET', '/address-books/' + cur.guid);
   const book = data.book, canEdit = book.rule >= 2;
   const online = new Map(devices.map(d => [d.id, d.online]));
@@ -307,12 +310,58 @@ async function booksView(main) {
       return !q || [p.id, p.alias, p.username, p.hostname, p.note, ...tags].some(v => String(v || '').toLowerCase().includes(q));
     });
     tiles.replaceChildren(...shown.map(peerTile));
+    batchBar();
     empty.classList.toggle('hide', shown.length > 0);
     empty.replaceChildren(...(data.peers.length
       ? [h('b', null, t('Nothing matches the filter'))]
       : [h('b', null, t('No devices here yet')), t('Add one with its RustDesk ID, or add it from the RustDesk app.')]));
   };
-  const empty = h('div', { class: 'empty' });
+  const empty = h('div', { class: 'empty' }), batch = h('div', { class: 'row batch' });
+  for (const id of ab.sel) if (!data.peers.some(p => p.id === id)) ab.sel.delete(id);
+  const batchBar = () => {
+    const picked = data.peers.filter(p => ab.sel.has(p.id));
+    batch.replaceChildren(...(picked.length ? [h('span', { class: 'muted' }, t('{0} selected', picked.length)),
+      h('button', { class: 'btn small', onclick: () => batchTags(picked) }, t('Tags')),
+      h('button', { class: 'btn small', onclick: () => batchCopy(picked) }, t('Copy to another address book')),
+      h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox(t('Remove {0} entries from this address book?', picked.length), t('Remove'))) {
+        await api('POST', `/address-books/${book.guid}/peers/delete`, { ids: picked.map(p => p.id) }); ab.sel.clear(); reload(); } } }, t('Remove')),
+      h('button', { class: 'btn small', onclick: () => { ab.sel.clear(); paint(); } }, t('Clear'))] : []));
+  };
+  async function batchTags(picked) {
+    if (!data.tags.length) { toast(t('This address book has no tags yet.')); return; }
+    await dialog(t('Change tags of {0} entries', picked.length), [
+      h('div', { class: 'tagpick' }, data.tags.map(tg => { const dot = h('i', { class: 'tagdot' }); dot.style.background = tagColor(tg); return h('label', null, h('input', { type: 'checkbox', name: 'tag', value: tg.name }), dot, tg.name); })),
+      h('label', { class: 'check' }, h('input', { type: 'radio', name: 'op', value: 'add', checked: true }), t('Add tags')),
+      h('label', { class: 'check' }, h('input', { type: 'radio', name: 'op', value: 'remove' }), t('Remove tags'))],
+    async f => {
+      const names = f.getAll('tag'), add = f.get('op') === 'add';
+      for (const p of picked) {
+        const cur = p.tags || [], next = add ? [...new Set([...cur, ...names])] : cur.filter(x => !names.includes(x));
+        if (next.length !== cur.length) await api('PUT', `/address-books/${book.guid}/peers`, { id: p.id, tags: next });
+      }
+    }) && (ab.sel.clear(), reload());
+  }
+  async function batchCopy(picked) {
+    const targets = books.filter(b => b.rule >= 2 && b.guid !== book.guid);
+    let n = 0;
+    await dialog(t('Copy to another address book'), [field(t('Address book'), h('select', { name: 'guid' }, targets.map(b => h('option', { value: b.guid }, bookName(b))))),
+      h('p', { class: 'muted' }, t('Saved passwords are not copied. Tags the other book does not have are left out.'))],
+    async f => {
+      const target = await api('GET', '/address-books/' + f.get('guid')), known = new Set(target.tags.map(x => x.name));
+      for (const p of picked) {
+        const { hash, password, ...rest } = p;
+        await api('PUT', `/address-books/${f.get('guid')}/peers`, { ...rest, tags: (p.tags || []).filter(x => known.has(x)) });
+        n++;
+      }
+    }, { save: t('Copy') }) && (toast(t('{0} copied', n)), ab.sel.clear(), reload());
+  }
+  const exportBook = () => {
+    const cols = ['id', 'alias', 'username', 'hostname', 'platform', 'tags', 'note'];
+    const cell = v => '"' + String(Array.isArray(v) ? v.join(' ') : v ?? '').replace(/"/g, '""') + '"';
+    const csv = [cols.join(','), ...data.peers.map(p => cols.map(c => cell(p[c])).join(','))].join('\r\n');
+    const a = h('a', { href: URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' })), download: bookName(book).replace(/[^\w.-]+/g, '_') + '.csv' });
+    document.body.append(a); a.click(); a.remove();
+  };
   const peerTile = p => {
     const s = splitId(p.id), tags = (p.tags || []).map(n => data.tags.find(x => x.name === n) || { name: n, color: 0 });
     // Entries pinned to this very server are still ours: their state is known.
@@ -322,6 +371,7 @@ async function booksView(main) {
       h('div', { class: 'host trunc' }, [p.username, p.hostname].filter(Boolean).join('@') || (s.server || '')),
       h('div', { class: 'tags' }, tags.slice(0, 6).map(tg => { const i = h('i', { title: tg.name }); i.style.background = tagColor(tg); return i; })));
     art.style.background = peerColor(s.id, p.platform);
+    if (canEdit) art.prepend(h('input', { type: 'checkbox', class: 'pick-box', 'aria-label': t('Select'), checked: ab.sel.has(p.id), onchange: e => { e.target.checked ? ab.sel.add(p.id) : ab.sel.delete(p.id); batchBar(); } }));
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
       { label: t('Connect'), run: () => { location.href = 'rustdesk://' + p.id; } },
       { label: t('Copy ID'), run: () => copy(p.id) },
@@ -412,6 +462,7 @@ async function booksView(main) {
     book.rule === 3 && !book.personal && { label: t('Share'), run: shareBook },
     canEdit && { label: t('Pin a server on the entries'), run: pinServer },
     canEdit && { label: t('New tag'), run: () => editTag() },
+    { label: t('Export'), run: exportBook },
     book.rule === 3 && !book.personal && '-',
     book.rule === 3 && !book.personal && { label: t('Delete'), danger: true, run: async () => {
       if (await confirmBox(t('Delete the address book {0} and its {1} entries?', book.name, data.peers.length), t('Delete'))) { await api('DELETE', '/address-books/' + book.guid); ab.guid = null; go('books'); render(); }
@@ -447,7 +498,7 @@ async function booksView(main) {
         !canEdit && h('span', { class: 'chip' }, t('Read only')),
         h('input', { class: 'search', type: 'search', placeholder: t('Search'), 'aria-label': t('Search'), value: ab.q, oninput: e => { ab.q = e.target.value; paint(); } }),
         modeBtn, canEdit && h('button', { class: 'btn primary', onclick: () => editPeer() }, t('Add device')), more),
-      tiles, empty)));
+      batch, tiles, empty)));
   for (const el of main.querySelectorAll('.ab-side .check')) { el.style.margin = '8px'; el.style.fontSize = '12.5px'; }
   paint();
 }

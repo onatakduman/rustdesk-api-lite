@@ -48,6 +48,8 @@ const TR = {
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
   'Language': 'Dil', 'devices': 'cihaz', 'online': 'çevrimiçi', 'users': 'kullanıcı', 'address book entries': 'adres defteri kaydı', 'Overview': 'Genel durum',
   'All address books': 'Tüm adres defterleri',
+  'Ways to sign in': 'Giriş yöntemleri', 'Linked': 'Bağlı', 'Link': 'Bağla', 'Unlink': 'Bağlantıyı kaldır', 'Not linked': 'Bağlı değil',
+  'For GitHub use the issuer https://github.com.': 'GitHub için yayıncı olarak https://github.com yaz.',
   'API tokens': 'API token\'ları', 'New API token': 'Yeni API token\'ı', 'For scripts and for rustdesk --assign. The token is shown once.': 'Betikler ve rustdesk --assign için. Token yalnız bir kez gösterilir.',
   'Copy the token now. It cannot be shown again.': 'Token\'ı şimdi kopyala. Bir daha gösterilemez.', 'Done': 'Tamam', 'No API token yet': 'Henüz API token\'ı yok', 'Revoke': 'İptal et',
   'Sign-ins': 'Girişler', 'Alarms': 'Alarmlar', 'Result': 'Sonuç', 'Signed in': 'Giriş yapıldı', 'Refused': 'Reddedildi', 'Method': 'Yöntem', 'Event': 'Olay', 'Details': 'Ayrıntı',
@@ -600,7 +602,7 @@ async function settingsView(main) {
     const editProvider = async p => {
       await dialog(p ? p.name : t('Add provider'), [
         !p && field(t('Name'), text('name', 'google', { required: true, pattern: '[a-z0-9_-]+' })),
-        field(t('Issuer'), h('input', { type: 'url', name: 'issuer', value: p?.issuer || 'https://accounts.google.com', required: true })),
+        field(t('Issuer'), h('input', { type: 'url', name: 'issuer', value: p?.issuer || 'https://accounts.google.com', required: true }), t('For GitHub use the issuer https://github.com.')),
         field(t('Client ID'), text('client_id', p?.client_id || '', { required: true })),
         field(t('Client secret'), h('input', { type: 'password', name: 'client_secret', autocomplete: 'off', required: !p }), p && t('Leave empty to keep the stored secret.')),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'auto_register', checked: p?.auto_register }), t('Create accounts for new people who sign in')),
@@ -622,6 +624,11 @@ async function settingsView(main) {
     field(t('New password'), h('input', { type: 'password', name: 'new', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.')),
     h('button', { class: 'btn', type: 'submit' }, t('Change password')));
   panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Your password'))), pw));
+  if (state.providers.length) panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Ways to sign in'))),
+    h('div', { class: 'list' }, state.providers.map(p => { const linked = (state.user.providers || []).includes(p);
+      return h('div', null, h('div', { class: 'grow' }, h('b', null, p[0].toUpperCase() + p.slice(1)), h('div', { class: 'sub' }, linked ? t('Linked') : t('Not linked'))),
+        linked ? h('button', { class: 'btn small', onclick: async () => { try { await api('DELETE', '/me/identities/' + encodeURIComponent(p)); state.user.providers = state.user.providers.filter(x => x !== p); render(); } catch (ex) { toast(ex.message); } } }, t('Unlink'))
+          : h('a', { class: 'btn small', href: '/oidc/login?link=1&provider=' + encodeURIComponent(p) }, t('Link'))); }))));
   const langSel = h('select', { 'aria-label': t('Language'), onchange: e => { lang = e.target.value; localStorage.setItem('rdl-lang', lang); render(); } },
     h('option', { value: 'en', selected: lang === 'en' }, 'English'), h('option', { value: 'tr', selected: lang === 'tr' }, 'Türkçe'));
   langSel.style.width = 'auto';

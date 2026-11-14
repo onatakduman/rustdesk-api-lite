@@ -309,3 +309,9 @@ func (s *Store) ImportToken(plain string, t *Token) error {
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, hashToken(plain), t.UserID, t.Kind, t.DeviceID, t.DeviceUUID, t.DeviceName, t.DeviceOS, t.IP, t.CreatedAt, t.CreatedAt, t.ExpiresAt)
 	return err
 }
+
+// UnlinkIdentity removes an external sign-in from a user.
+func (s *Store) UnlinkIdentity(provider string, userID int64) error {
+	_, err := s.db.Exec("DELETE FROM identities WHERE provider = ? AND user_id = ?", provider, userID)
+	return err
+}

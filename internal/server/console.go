@@ -135,6 +135,7 @@ func (s *Server) consoleRoutes() {
 
 	m.HandleFunc("GET "+p+"/overview", s.authed(false, s.cOverview))
 	m.HandleFunc("POST "+p+"/me/password", s.authed(false, s.cOwnPassword))
+	m.HandleFunc("DELETE "+p+"/me/identities/{provider}", s.authed(false, s.cOwnUnlink))
 
 	m.HandleFunc("GET "+p+"/devices", s.authed(false, s.cDevices))
 	m.HandleFunc("PATCH "+p+"/devices/{id}", s.authed(true, s.cDevicePatch))
@@ -273,6 +274,19 @@ func (s *Server) cOwnPassword(c *consoleCtx) {
 		}
 	}
 	if c.err(s.st.SetPassword(c.user.ID, in.New, c.tok)) {
+		return
+	}
+	c.done()
+}
+
+// cOwnUnlink removes an external sign-in from the caller's account, unless it
+// is the only way left to sign in.
+func (s *Server) cOwnUnlink(c *consoleCtx) {
+	if !c.user.HasPassword && len(s.st.IdentityProviders(c.user.ID)) <= 1 {
+		c.fail(http.StatusBadRequest, "set a password first; this is your only way to sign in")
+		return
+	}
+	if c.err(s.st.UnlinkIdentity(c.r.PathValue("provider"), c.user.ID)) {
 		return
 	}
 	c.done()
@@ -885,6 +899,9 @@ func (s *Server) cOIDCPut(c *consoleCtx) {
 	}
 	p := &store.OIDCProvider{Name: strings.ToLower(strings.TrimSpace(c.r.PathValue("name"))), Issuer: strings.TrimRight(strings.TrimSpace(in.Issuer), "/"),
 		ClientID: strings.TrimSpace(in.ClientID), ClientSecret: strings.TrimSpace(in.ClientSecret), Scopes: strings.TrimSpace(in.Scopes), AutoRegister: in.AutoRegister}
+	if p.Scopes == "" && isGitHub(p) {
+		p.Scopes = "read:user user:email"
+	}
 	if c.err(s.st.SaveOIDCProvider(p)) {
 		return
 	}

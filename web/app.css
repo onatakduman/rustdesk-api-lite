@@ -59,7 +59,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn:disabled { opacity: .5; cursor: default; }
 .icon-btn { border: 0; background: none; border-radius: 6px; width: 30px; height: 30px; display: inline-grid; place-items: center; cursor: pointer; color: var(--muted); flex: none; }
 .icon-btn:hover { background: var(--hover); color: var(--text); }
-.icon-btn svg, .nav svg, .tabbar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn svg, .nav svg, .tabbar svg, .find svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .field { display: grid; gap: 4px; margin-bottom: 12px; }
 .field > span { font-size: 13px; color: var(--muted); }
 .field small { color: var(--muted); }
@@ -85,7 +85,23 @@ textarea { resize: vertical; min-height: 64px; }
 /* The RustDesk mark sits on a white tile, the way the app icon shows it, in both themes. */
 .brand-mark { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(15, 23, 42, .08); }
 .brand-mark img { width: 20px; height: 20px; display: block; }
-.side .brand { padding: 18px 20px 6px; }
+.side-top { display: flex; align-items: center; gap: 8px; padding: 16px 12px 4px 20px; }
+.side-top .brand { flex: 1; min-width: 0; }
+/* Opens the search over all address books from any page. */
+.find { display: flex; align-items: center; gap: 8px; margin: 10px 14px 2px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--ground); color: var(--muted); cursor: pointer; text-align: left; }
+.find:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.find svg { width: 16px; height: 16px; flex: none; }
+.find span { flex: 1; }
+.find kbd { font: inherit; font-size: 12px; line-height: 1.4; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; background: var(--panel); }
+/* Folded: a rail of icons */
+.shell.rail { --side: 60px; }
+.shell.rail .side-top { flex-direction: column; padding: 14px 0 0; gap: 8px; }
+.shell.rail .side-top .brand { flex: none; }
+.shell.rail .brand-name, .shell.rail .server, .shell.rail .nav a span, .shell.rail .me .grow, .shell.rail .find span, .shell.rail .find kbd { display: none; }
+.shell.rail .find { margin: 8px auto 0; padding: 0; width: 38px; height: 34px; justify-content: center; }
+.shell.rail .nav { padding: 10px 0; justify-items: center; margin-top: 10px; border-top: 1px solid var(--line); }
+.shell.rail .nav a { width: 40px; height: 38px; padding: 0; justify-content: center; }
+.shell.rail .me { flex-direction: column; padding: 10px 0; gap: 6px; }
 .server { padding: 14px 20px 16px; border-bottom: 1px solid var(--line); }
 .server h2 { font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 10px; }
 .server .kv { border-left: 3px solid var(--accent); padding: 1px 0 1px 12px; margin-bottom: 12px; }
@@ -143,15 +159,39 @@ tr:first-child td { border-top: 0; }
 .ab-main { padding: 16px 20px 40px; overflow: auto; min-width: 0; }
 .ab-select { display: none; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.toolbar h1 { font-size: 18px; }
+.toolbar h1 { font-size: 18px; flex: 0 1 auto; min-width: 110px; }
 .toolbar .search { flex: 1; min-width: 150px; max-width: 320px; margin-left: auto; }
+.filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; font-size: 13px; }
+.filters > .muted { margin-right: auto; }
+.filters select, .head select.sort { width: auto; padding: 5px 8px; font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); flex: none; }
+.seg button { border: 0; background: none; padding: 5px 11px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-text); font-weight: 500; }
+.seg button:focus-visible { outline-offset: -2px; }
+.chips { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; min-width: 0; }
+button.chip { border: 0; cursor: pointer; font-size: 12px; }
+/* Search results: one block per address book */
+.grp { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--muted); margin: 20px 0 8px; }
+.results > .grp:first-child { margin-top: 0; }
+.grp small { font-weight: 400; }
+.grp .btn { margin-left: 4px; }
+.searching { margin-top: 14px; font-size: 13px; }
+.icon-btn.go { color: var(--accent-text); }
+.icon-btn.go:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-text); }
+.peer .cols { display: none; }
+.peer, .dev { user-select: none; }
+.ab.narrow { grid-template-columns: minmax(0, 1fr); }
+.ab.narrow .ab-side { display: none; }
+.ab.narrow .ab-select { display: flex; gap: 8px; margin-bottom: 12px; max-width: 360px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; }
 .peer { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
 .peer-art { height: 104px; display: grid; place-items: center; align-content: center; gap: 6px; color: #fff; padding: 10px; text-align: center; position: relative; }
 .peer-art svg { width: 38px; height: 38px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .peer-art .pick-box { position: absolute; top: 8px; left: 8px; width: 16px; height: 16px; margin: 0; accent-color: #fff; opacity: .55; }
 .peer-art .pick-box:checked, .peer:hover .pick-box, .pick-box:focus-visible { opacity: 1; }
-.tiles.as-list .peer-art .pick-box { top: 14px; left: -2px; position: static; margin: 0 8px 0 0; }
+.tiles.as-list .peer-art .pick-box { top: 3px; left: 3px; width: 13px; height: 13px; }
 .peer-art .host { font-size: 12.5px; max-width: 100%; opacity: .95; }
 .peer-art .tags { position: absolute; top: 8px; right: 8px; display: flex; gap: 3px; }
 .peer-art .tags i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .85); }
@@ -165,9 +205,15 @@ tr:first-child td { border-top: 0; }
 .tiles.as-list .peer-art svg { width: 22px; height: 22px; }
 .tiles.as-list .peer-art .host, .tiles.as-list .peer-art .tags { display: none; }
 .tiles.as-list .peer-foot { flex: 1; min-width: 0; }
+.tiles.as-list .peer .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; flex: 2.6; min-width: 0; align-items: center; font-size: 13px; }
+.tiles.as-list .peer .chips { flex-wrap: nowrap; overflow: hidden; }
+@media (max-width: 1180px) {
+  .tiles.as-list .peer .cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); flex: 1.8; }
+  .tiles.as-list .peer .cols > :last-child { display: none; }
+}
 
 /* Menus and dialogs */
-.menu { position: fixed; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 190px; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
+.menu { position: fixed; z-index: 30; max-height: calc(100dvh - 16px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 190px; box-shadow: 0 6px 24px rgba(0, 0, 0, .16); }
 .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 5px; cursor: pointer; }
 .menu button:hover { background: var(--hover); }
 .menu button.danger { color: var(--danger); }
@@ -222,6 +268,8 @@ dialog p + p { margin-top: 10px; }
   .tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .peer-art { height: 88px; }
   .wide-only { display: none !important; }
+  .tiles.as-list .peer .cols { display: none; }
+  .head .seg, .head select.sort { order: 6; }
   td, th { padding-left: 12px; padding-right: 12px; }
 }
 @media (prefers-reduced-motion: no-preference) {

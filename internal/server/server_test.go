@@ -613,3 +613,74 @@ func TestGroupSharesAndIdleSessions(t *testing.T) {
 		t.Fatalf("session of a forgotten device must end, got %d", code)
 	}
 }
+
+func (h *harness) consoleLogin(name string) string {
+	h.t.Helper()
+	raw, _ := json.Marshal(map[string]string{"username": name, "password": "correct horse"})
+	req, _ := http.NewRequest("POST", h.srv.URL+"/console/api/login", bytes.NewReader(raw))
+	req.Header.Set("X-RDL", "1")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		h.t.Fatalf("console login %s: %v", name, err)
+	}
+	res.Body.Close()
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookie {
+			return c.Name + "=" + c.Value
+		}
+	}
+	h.t.Fatal("no session cookie")
+	return ""
+}
+
+// The search index holds the books the caller may read, and nothing else.
+func TestSearchIndex(t *testing.T) {
+	h := newHarness(t)
+	ada, bob, cy := h.user("ada", true), h.user("bob", false), h.user("cy", false)
+	put := func(guid, id string) {
+		t.Helper()
+		if err := h.st.PutPeer(guid, store.Peer{"id": id, "alias": "dev " + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adaBook, _ := h.st.PersonalAB(ada.ID)
+	bobBook, _ := h.st.PersonalAB(bob.ID)
+	field, err := h.st.CreateAB(bob.ID, "Field", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(adaBook, "333")
+	put(bobBook, "111")
+	put(field, "222@host.example?key=a+b/c=")
+	if err := h.st.SetShares(field, []store.Share{{UserID: cy.ID, Rule: store.RuleRead}}); err != nil {
+		t.Fatal(err)
+	}
+	index := func(cookie, query string) string {
+		t.Helper()
+		code, raw, _ := h.call("GET", "/console/api/search-index"+query, "", nil, "Cookie", cookie)
+		if code != 200 {
+			t.Fatalf("search index: %d %s", code, raw)
+		}
+		return raw
+	}
+	if code, _, _ := h.call("GET", "/console/api/search-index", "", nil); code != 401 {
+		t.Fatalf("anonymous search index: %d", code)
+	}
+	got := index(h.consoleLogin("cy"), "")
+	if !strings.Contains(got, `"222@host.example?key=a+b/c="`) || !strings.Contains(got, `"name":"Field"`) || !strings.Contains(got, `"rule":1`) {
+		t.Fatalf("cy must find the shared entry, key untouched: %s", got)
+	}
+	if strings.Contains(got, `"111"`) || strings.Contains(got, `"333"`) {
+		t.Fatalf("cy must not see other people's books: %s", got)
+	}
+	adaCookie := h.consoleLogin("ada")
+	if got := index(adaCookie, ""); !strings.Contains(got, `"333"`) || strings.Contains(got, `"111"`) {
+		t.Fatalf("an admin sees only their own books by default: %s", got)
+	}
+	if got := index(adaCookie, "?all=1"); !strings.Contains(got, `"111"`) || !strings.Contains(got, `"222@host.example`) || !strings.Contains(got, `"333"`) {
+		t.Fatalf("an admin asking for all books gets all of them: %s", got)
+	}
+	if got := index(h.consoleLogin("bob"), "?all=1"); strings.Contains(got, `"333"`) {
+		t.Fatalf("all=1 must do nothing for a regular user: %s", got)
+	}
+}

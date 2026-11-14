@@ -146,6 +146,7 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("DELETE "+p+"/devices/{id}", s.authed(true, s.cDeviceDelete))
 
 	m.HandleFunc("GET "+p+"/address-books", s.authed(false, s.cBooks))
+	m.HandleFunc("GET "+p+"/search-index", s.authed(false, s.cSearchIndex))
 	m.HandleFunc("POST "+p+"/address-books", s.authed(false, s.cBookCreate))
 	m.HandleFunc("GET "+p+"/address-books/{guid}", s.authed(false, s.cBook))
 	m.HandleFunc("PATCH "+p+"/address-books/{guid}", s.authed(false, s.cBookPatch))
@@ -411,6 +412,42 @@ func (s *Server) cBooks(c *consoleCtx) {
 		return
 	}
 	c.ok(map[string]any{"address_books": bs})
+}
+
+// cSearchIndex returns every address book the caller may read together with its
+// entries and tags, so the console can search across all of them at once.
+func (s *Server) cSearchIndex(c *consoleCtx) {
+	var bs []*store.AddressBook
+	var err error
+	if c.user.IsAdmin && c.r.URL.Query().Get("all") == "1" {
+		bs, err = s.st.AllABs(c.user.ID)
+		for _, b := range bs {
+			b.Rule = store.RuleFull
+		}
+	} else {
+		bs, err = s.st.ABsFor(c.user.ID)
+	}
+	if c.err(err) {
+		return
+	}
+	type entry struct {
+		Book  *store.AddressBook `json:"book"`
+		Peers []store.Peer       `json:"peers"`
+		Tags  []store.Tag        `json:"tags"`
+	}
+	out := make([]entry, 0, len(bs))
+	for _, b := range bs {
+		peers, _, err := s.st.Peers(b.GUID, 0, 0)
+		if c.err(err) {
+			return
+		}
+		tags, err := s.st.Tags(b.GUID)
+		if c.err(err) {
+			return
+		}
+		out = append(out, entry{b, peers, tags})
+	}
+	c.ok(map[string]any{"books": out})
 }
 
 func (s *Server) cBookCreate(c *consoleCtx) {

@@ -79,6 +79,11 @@ const TR = {
   'A custom RustDesk client can name its owner, group and address book (preset options). Leave off unless you deploy such clients.': 'Özel bir RustDesk istemcisi sahibini, grubunu ve adres defterini bildirebilir (preset seçenekleri). Böyle istemciler dağıtmıyorsan kapalı bırak.',
   'Keep logs for (days)': 'Kayıtları sakla (gün)', 'Empty keeps them forever.': 'Boş bırakılırsa süresiz saklanır.',
   'Options sent to every device': 'Tüm cihazlara gönderilen ayarlar', 'One option per line as name=value. An empty value removes the option on the devices.': 'Her satıra bir ayar: ad=değer. Boş değer, ayarı cihazlarda kaldırır.',
+  'Search all address books': 'Tüm adres defterlerinde ara', 'Search devices': 'Cihazlarda ara', 'Searching the other address books…': 'Diğer adres defterlerinde aranıyor…', 'Open': 'Aç',
+  'Hide the side panel': 'Yan paneli gizle', 'Show the side panel': 'Yan paneli göster', 'Hide address books and tags': 'Adres defterlerini ve etiketleri gizle', 'Show address books and tags': 'Adres defterlerini ve etiketleri göster',
+  'Remote desktop': 'Uzak masaüstü', 'File transfer': 'Dosya aktarımı', 'View camera': 'Kamerayı görüntüle', 'Terminal': 'Terminal', 'TCP tunnel': 'TCP tüneli',
+  'Remote desktop through the relay': 'Aktarma sunucusu üzerinden uzak masaüstü', 'Copy link': 'Bağlantı linkini kopyala',
+  'All': 'Tümü', 'Sort': 'Sırala', 'As added': 'Eklenme sırası', 'Online first': 'Önce çevrimiçi', 'Last seen': 'Son görülme', '{0} entries': '{0} kayıt', '1 entry': '1 kayıt', '{0} online': '{0} çevrimiçi',
   'Default password': 'Varsayılan parola', 'Offered by the app for entries of this book that have no password of their own. Stored as plain text.': 'Bu defterde kendi parolası olmayan kayıtlar için uygulamanın kullandığı parola. Düz metin saklanır.', 'Version {0}': 'Sürüm {0}', 'More': 'Diğer', 'Sign-in': 'Giriş', 'Role': 'Rol', 'User': 'Kullanıcı',
 };
 let lang = localStorage.getItem('rdl-lang') || ((navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en');
@@ -113,6 +118,9 @@ const ICONS = {
   out: '<path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9"/>',
   tiles: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  side: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  go: '<path d="M5 12h13M12.5 6l6 6-6 6"/>',
   // platform glyphs (own drawings, not vendor logos)
   windows: '<path d="M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z"/>',
   mac: '<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/><path d="M10 19l.5-3M14 19l-.5-3"/>',
@@ -236,11 +244,16 @@ async function render() {
   if (!state.user) { app.replaceChildren(loginView()); return; }
   const { view } = route();
   const items = NAV.filter(n => !n.admin || state.user.is_admin);
-  const link = n => h('a', { href: '#/' + n.id, class: view === n.id && 'on', 'aria-current': view === n.id && 'page' }, icon(n.id), h('span', null, t(n.label)));
+  // The side pane folds down to a rail of icons; the choice is kept in this browser.
+  const rail = localStorage.getItem('rdl-side') === '1';
+  const link = n => h('a', { href: '#/' + n.id, class: view === n.id && 'on', 'aria-current': view === n.id && 'page', title: rail && t(n.label) }, icon(n.id), h('span', null, t(n.label)));
+  const sideLabel = rail ? t('Show the side panel') : t('Hide the side panel');
   const main = h('main', null);
-  app.replaceChildren(h('div', { class: 'shell' },
+  app.replaceChildren(h('div', { class: 'shell' + (rail ? ' rail' : '') },
     h('aside', { class: 'side' },
-      brandMark(),
+      h('div', { class: 'side-top' }, brandMark(),
+        h('button', { class: 'icon-btn', title: sideLabel, 'aria-label': sideLabel, 'aria-expanded': String(!rail), onclick: () => { localStorage.setItem('rdl-side', rail ? '0' : '1'); render(); } }, icon('side'))),
+      h('button', { class: 'find', type: 'button', title: t('Search all address books'), onclick: focusSearch }, icon('search'), h('span', null, t('Search')), h('kbd', null, '/')),
       serverCard(),
       h('nav', { class: 'nav', 'aria-label': 'Main' }, items.map(link)),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, (state.user.username[0] || '?').toUpperCase()),
@@ -262,18 +275,57 @@ function serverCard() {
 // The link the RustDesk app opens for an id such as 123, 123@host or 123@host?key=K.
 // The app reads the query like a web form, where a bare "+" is a space, and server keys
 // are base64 with "+" in them, so the values are percent-encoded.
-function connectURL(id) {
+// mode is one of the app's link commands (file-transfer, view-camera, terminal, port-forward, rdp).
+function connectURL(id, mode = 'connect', relay = false) {
   const q = id.indexOf('?');
-  if (q < 0) return 'rustdesk://' + id;
-  const query = id.slice(q + 1).split('&').map(kv => {
+  const params = (q < 0 ? [] : id.slice(q + 1).split('&')).map(kv => {
     const i = kv.indexOf('=');
     return i < 0 ? kv : kv.slice(0, i + 1) + encodeURIComponent(kv.slice(i + 1));
-  }).join('&');
-  return 'rustdesk://' + id.slice(0, q) + '?' + query;
+  });
+  if (relay) params.push('relay=1');
+  return 'rustdesk://' + (mode === 'connect' ? '' : mode + '/') + (q < 0 ? id : id.slice(0, q)) + (params.length ? '?' + params.join('&') : '');
 }
+const openInApp = (id, mode, relay) => { location.href = connectURL(id, mode, relay); };
+const onPhone = /android|iphone|ipad/i.test(navigator.userAgent);
+// Menu entries for everything the RustDesk app can open for a device.
+function connectItems(id, platform) {
+  return [
+    { label: t('Remote desktop'), run: () => openInApp(id) },
+    { label: t('File transfer'), run: () => openInApp(id, 'file-transfer') },
+    { label: t('View camera'), run: () => openInApp(id, 'view-camera') },
+    { label: t('Terminal'), run: () => openInApp(id, 'terminal') },
+    !onPhone && { label: t('TCP tunnel'), run: () => openInApp(id, 'port-forward') },
+    // The app offers RDP only from Windows to Windows.
+    /win/i.test(navigator.userAgent) && /win/i.test(platform || '') && { label: 'RDP', run: () => openInApp(id, 'rdp') },
+    { label: t('Remote desktop through the relay'), run: () => openInApp(id, 'connect', true) },
+    '-',
+    { label: t('Copy ID'), run: () => copy(id) },
+    { label: t('Copy link'), run: () => copy(connectURL(id)) },
+  ];
+}
+// A row of buttons of which one is on.
+function seg(cur, opts, onPick) {
+  const el = h('div', { class: 'seg', role: 'group' });
+  const draw = () => el.replaceChildren(...opts.map(([v, l]) => h('button', { type: 'button', class: cur === v && 'on', 'aria-pressed': String(cur === v), onclick: () => { cur = v; draw(); onPick(v); } }, l)));
+  draw();
+  return el;
+}
+// Search lives in the address book view and covers every book and the devices;
+// "/" or Ctrl/Cmd+K jumps to it from anywhere.
+function focusSearch() {
+  const box = document.querySelector('.toolbar .search');
+  if (route().view === 'books' && box) { box.focus(); box.select(); return; }
+  ab.focus = true;
+  go('books');
+}
+addEventListener('keydown', e => {
+  if (!state.user || document.querySelector('dialog[open]')) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+  if ((e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) { e.preventDefault(); focusSearch(); }
+});
 
 function brandMark() {
-  return h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, h('img', { src: '/icon.svg', alt: '' })), 'RustDesk API Lite');
+  return h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, h('img', { src: '/icon.svg', alt: '' })), h('span', { class: 'brand-name trunc' }, 'RustDesk API Lite'));
 }
 
 async function signOut() { try { await api('POST', '/logout'); } catch { /* already gone */ } state.user = null; render(); }
@@ -305,7 +357,7 @@ function loginView() {
 }
 
 // ---------- address books ----------
-const ab = { guid: null, tags: new Set(), q: '', sel: new Set(), mode: localStorage.getItem('rdl-view') || 'tiles' };
+const ab = { guid: null, tags: new Set(), q: '', sel: new Set(), mode: localStorage.getItem('rdl-view') || 'tiles', status: 'all', sort: localStorage.getItem('rdl-sort') || 'added', focus: false };
 async function booksView(main) {
   const all = state.user.is_admin && localStorage.getItem('rdl-allbooks') === '1';
   const [{ address_books: books }, { devices }] = await Promise.all([api('GET', '/address-books' + (all ? '?all=1' : '')), api('GET', '/devices')]);
@@ -318,18 +370,68 @@ async function booksView(main) {
   const bookName = b => b.personal ? (b.owner_id === state.user.id ? t('My address book') : b.owner) : b.name;
   const reload = () => render();
 
-  const tiles = h('div', { class: 'tiles' + (ab.mode === 'list' ? ' as-list' : '') });
+  // Entries pinned to this very server are still ours: their state is known.
+  const own = (state.overview?.client.id_server || '').replace(/:\d+$/, '');
+  const stateOf = p => { const s = splitId(p.id); return s.server && s.server.replace(/:\d+$/, '') !== own ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown'; };
+  const nameOf = p => (p.alias || splitId(p.id).id).toLowerCase();
+  const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), lang, { numeric: true });
+  const rank = p => ['on', '', 'unknown'].indexOf(stateOf(p));
+  const SORTS = {
+    name: byName,
+    id: (a, b) => splitId(a.id).id.localeCompare(splitId(b.id).id, 'en', { numeric: true }),
+    status: (a, b) => rank(a) - rank(b) || byName(a, b),
+    platform: (a, b) => (a.platform || '~').localeCompare(b.platform || '~') || byName(a, b),
+  };
+  // Tags used on entries but never given a colour still need to be shown and filterable.
+  const withUsedTags = d => {
+    const known = new Set(d.tags.map(x => x.name));
+    for (const p of d.peers) for (const n of p.tags || []) if (!known.has(n)) { known.add(n); d.tags.push({ name: n, color: 0 }); }
+    return d;
+  };
+  withUsedTags(data);
+  // A search looks through every address book the account can read, and the devices.
+  // The other books are fetched once, on the first search.
+  let index = null, indexing = null;
+  const loadIndex = () => indexing ||= api('GET', '/search-index' + (all ? '?all=1' : '')).then(r => { index = r.books.map(withUsedTags); }, () => { index = []; }).then(() => paint());
+  const results = h('div', { class: 'results' }), count = h('span', { class: 'muted' }), tagChips = h('span', { class: 'chips' });
+  const grid = kids => h('div', { class: 'tiles' + (ab.mode === 'list' ? ' as-list' : '') }, kids);
   const paint = () => {
     const q = ab.q.trim().toLowerCase();
-    const shown = data.peers.filter(p => {
-      const tags = p.tags || [];
-      if (ab.tags.size && ![...ab.tags].every(x => tags.includes(x))) return false;
-      return !q || [p.id, p.alias, p.username, p.hostname, p.note, ...tags].some(v => String(v || '').toLowerCase().includes(q));
-    });
-    tiles.replaceChildren(...shown.map(peerTile));
+    const pick = d => {
+      const out = d.peers.filter(p => {
+        const tags = p.tags || [];
+        if (ab.tags.size && ![...ab.tags].every(x => tags.includes(x))) return false;
+        if (ab.status !== 'all' && stateOf(p) !== (ab.status === 'on' ? 'on' : '')) return false;
+        return !q || [p.id, p.alias, p.username, p.hostname, p.note, ...tags].some(v => String(v || '').toLowerCase().includes(q));
+      });
+      return SORTS[ab.sort] ? out.sort(SORTS[ab.sort]) : out;
+    };
+    const groups = [{ d: data, peers: pick(data) }];
+    let found = [];
+    if (q) {
+      if (!index) loadIndex();
+      for (const d of index || []) if (d.book.guid !== book.guid) groups.push({ d, peers: pick(d) });
+      // Devices that report to this server but are in none of the books found.
+      const listed = new Set(groups.flatMap(g => g.peers.map(p => splitId(p.id).id)));
+      found = ab.tags.size ? [] : devices.filter(d => !listed.has(d.id) && (ab.status === 'all' || d.online === (ab.status === 'on'))
+        && [d.id, d.hostname, d.username, d.os, d.user, d.group, d.note].some(v => String(v || '').toLowerCase().includes(q)));
+    }
+    const hits = groups.filter(g => g.peers.length);
+    const total = hits.reduce((n, g) => n + g.peers.length, 0) + found.length;
+    const up = hits.reduce((n, g) => n + g.peers.filter(p => stateOf(p) === 'on').length, 0) + found.filter(d => d.online).length;
+    count.textContent = (total === 1 ? t('1 entry') : t('{0} entries', total)) + (up ? ', ' + t('{0} online', up) : '');
+    const heading = (name, n, guid) => h('h2', { class: 'grp' }, h('span', { class: 'trunc' }, name), h('small', null, n),
+      guid && h('button', { class: 'btn small', onclick: () => { ab.q = ''; go('books', guid); } }, t('Open')));
+    results.replaceChildren(...[
+      ...(q ? hits.flatMap(g => [heading(bookName(g.d.book), g.peers.length, g.d !== data && g.d.book.guid), grid(g.peers.map(p => peerTile(p, g.d)))])
+        : hits.map(g => grid(g.peers.map(p => peerTile(p, g.d))))),
+      ...(found.length ? [heading(t('Devices'), found.length), grid(found.map(deviceTile))] : []),
+      q && !index && h('p', { class: 'muted searching' }, t('Searching the other address books…')),
+    ].filter(Boolean));
+    tagChips.replaceChildren(...[...ab.tags].map(n => h('button', { class: 'chip blue', type: 'button', title: t('Remove'), onclick: () => { ab.tags.delete(n); reload(); } }, n, ' \u00d7')));
     batchBar();
-    empty.classList.toggle('hide', shown.length > 0);
-    empty.replaceChildren(...(data.peers.length
+    empty.classList.toggle('hide', total > 0 || Boolean(q && !index));
+    empty.replaceChildren(...(data.peers.length || q
       ? [h('b', null, t('Nothing matches the filter'))]
       : [h('b', null, t('No devices here yet')), t('Add one with its RustDesk ID, or add it from the RustDesk app.')]));
   };
@@ -379,32 +481,36 @@ async function booksView(main) {
     const a = h('a', { href: URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' })), download: bookName(book).replace(/[^\w.-]+/g, '_') + '.csv' });
     document.body.append(a); a.click(); a.remove();
   };
-  const peerTile = p => {
-    const s = splitId(p.id), tags = (p.tags || []).map(n => data.tags.find(x => x.name === n) || { name: n, color: 0 });
-    // Entries pinned to this very server are still ours: their state is known.
-    const own = (state.overview?.client.id_server || '').replace(/:\d+$/, '');
-    const st = s.server && s.server.replace(/:\d+$/, '') !== own ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown';
+  // d is the book the entry belongs to: the open one, or another one a search found it in.
+  const peerTile = (p, d) => {
+    const s = splitId(p.id), tags = (p.tags || []).map(n => d.tags.find(x => x.name === n) || { name: n, color: 0 });
+    const st = stateOf(p), edit = d.book.rule >= 2, host = [p.username, p.hostname].filter(Boolean).join('@');
     const art = h('div', { class: 'peer-art' }, platformIcon(p.platform),
-      h('div', { class: 'host trunc' }, [p.username, p.hostname].filter(Boolean).join('@') || (s.server || '')),
+      h('div', { class: 'host trunc' }, host || (s.server || '')),
       h('div', { class: 'tags' }, tags.slice(0, 6).map(tg => { const i = h('i', { title: tg.name }); i.style.background = tagColor(tg); return i; })));
     art.style.background = peerColor(s.id, p.platform);
-    if (canEdit) art.prepend(h('input', { type: 'checkbox', class: 'pick-box', 'aria-label': t('Select'), checked: ab.sel.has(p.id), onchange: e => { e.target.checked ? ab.sel.add(p.id) : ab.sel.delete(p.id); batchBar(); } }));
+    if (edit && d === data) art.prepend(h('input', { type: 'checkbox', class: 'pick-box', 'aria-label': t('Select'), checked: ab.sel.has(p.id), onchange: e => { e.target.checked ? ab.sel.add(p.id) : ab.sel.delete(p.id); batchBar(); } }));
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
-      { label: t('Connect'), run: () => { location.href = connectURL(p.id); } },
-      { label: t('Copy ID'), run: () => copy(p.id) },
-      canEdit && '-', canEdit && { label: t('Edit'), run: () => editPeer(p) },
-      canEdit && { label: t('Remove'), danger: true, run: async () => {
-        if (await confirmBox(t('Remove {0} from this address book?', p.alias || fmtId(s.id)), t('Remove'))) { await api('POST', `/address-books/${book.guid}/peers/delete`, { ids: [p.id] }); reload(); }
+      ...connectItems(p.id, p.platform),
+      edit && '-', edit && { label: t('Edit'), run: () => editPeer(p, d) },
+      edit && { label: t('Remove'), danger: true, run: async () => {
+        if (await confirmBox(t('Remove {0} from this address book?', p.alias || fmtId(s.id)), t('Remove'))) { await api('POST', `/address-books/${d.book.guid}/peers/delete`, { ids: [p.id] }); reload(); }
       } }]) }, icon('more'));
-    return h('article', { class: 'peer' }, art, h('div', { class: 'peer-foot' },
+    const chip = tg => { const dot = h('i', { class: 'tagdot' }); dot.style.background = tagColor(tg); return h('span', { class: 'chip' }, dot, tg.name); };
+    return h('article', { class: 'peer', ondblclick: e => { if (!e.target.closest('button, input')) openInApp(p.id); } }, art, h('div', { class: 'peer-foot' },
       h('span', { class: 'dot ' + st, title: st === 'on' ? t('Online') : st === '' ? t('Offline') : '' }),
       h('div', { class: 'grow' }, h('div', { class: 'name trunc' }, p.alias || fmtId(s.id)), h('div', { class: 'sub trunc' }, p.alias ? fmtId(s.id) + (s.server ? ' @ ' + s.server : '') : (s.server || p.note || ''))),
+      // Shown as columns in the list layout only.
+      h('div', { class: 'cols' }, h('span', { class: 'trunc' }, host), h('span', { class: 'chips' }, tags.slice(0, 3).map(chip), tags.length > 3 && h('span', { class: 'chip' }, '+' + (tags.length - 3))), h('span', { class: 'trunc muted' }, p.note || '')),
+      h('button', { class: 'icon-btn go', title: t('Connect'), 'aria-label': t('Connect'), onclick: () => openInApp(p.id) }, icon('go')),
       more));
   };
+  const deviceTile = dv => peerTile({ id: dv.id, alias: dv.hostname, username: dv.username, hostname: dv.hostname, platform: platformOf(dv.os), note: dv.note },
+    { book: { rule: 0, guid: '' }, tags: [], peers: [] });
 
-  async function editPeer(p) {
+  async function editPeer(p, d = data) {
     const s = splitId(p?.id), last = JSON.parse(localStorage.getItem('rdl-last-server') || '{}');
-    const tagBoxes = data.tags.length ? field(t('Tags'), h('div', { class: 'tagpick' }, data.tags.map(tg => {
+    const tagBoxes = d.tags.length ? field(t('Tags'), h('div', { class: 'tagpick' }, d.tags.map(tg => {
       const dot = h('i', { class: 'tagdot' }); dot.style.background = tagColor(tg);
       return h('label', null, h('input', { type: 'checkbox', name: 'tag', value: tg.name, checked: (p?.tags || []).includes(tg.name) }), dot, tg.name);
     }))) : null;
@@ -421,9 +527,9 @@ async function booksView(main) {
     ], async f => {
       const ns = { id: f.get('id').replace(/\s+/g, ''), server: f.get('server').trim(), key: f.get('key').trim() };
       if (ns.server) localStorage.setItem('rdl-last-server', JSON.stringify({ server: ns.server, key: ns.key }));
-      const next = { ...(p || {}), id: joinId(ns), alias: f.get('alias').trim(), platform: f.get('platform'), note: f.get('note').trim(), tags: data.tags.length ? f.getAll('tag') : (p?.tags || []) };
-      await api('PUT', `/address-books/${book.guid}/peers`, next);
-      if (p && p.id !== next.id) await api('POST', `/address-books/${book.guid}/peers/delete`, { ids: [p.id] });
+      const next = { ...(p || {}), id: joinId(ns), alias: f.get('alias').trim(), platform: f.get('platform'), note: f.get('note').trim(), tags: d.tags.length ? f.getAll('tag') : (p?.tags || []) };
+      await api('PUT', `/address-books/${d.book.guid}/peers`, next);
+      if (p && p.id !== next.id) await api('POST', `/address-books/${d.book.guid}/peers/delete`, { ids: [p.id] });
     }) && reload();
   }
   async function editTag(tg) {
@@ -496,11 +602,14 @@ async function booksView(main) {
     }, oncontextmenu: e => { if (canEdit) { e.preventDefault(); editTag(tg); } }, ondblclick: () => canEdit && editTag(tg) }, dot, h('span', { class: 'trunc' }, tg.name));
     return b;
   };
-  // Tags used on entries but never given a colour still need to be filterable.
-  const known = new Set(data.tags.map(x => x.name));
-  for (const p of data.peers) for (const n of p.tags || []) if (!known.has(n)) { known.add(n); data.tags.push({ name: n, color: 0 }); }
 
-  main.replaceChildren(h('div', { class: 'ab' },
+  // The list of books and tags folds away to give the entries the whole width.
+  const narrow = localStorage.getItem('rdl-abside') === '1';
+  const listsLabel = narrow ? t('Show address books and tags') : t('Hide address books and tags');
+  const sideBtn = h('button', { class: 'icon-btn wide-only', title: listsLabel, 'aria-label': listsLabel, 'aria-expanded': String(!narrow), onclick: () => { localStorage.setItem('rdl-abside', narrow ? '0' : '1'); reload(); } }, icon('side'));
+  const sortSel = h('select', { 'aria-label': t('Sort'), onchange: e => { ab.sort = e.target.value; localStorage.setItem('rdl-sort', ab.sort); paint(); } },
+    [['added', 'As added'], ['name', 'Name'], ['id', 'ID'], ['status', 'Online first'], ['platform', 'Platform']].map(([v, l]) => h('option', { value: v, selected: ab.sort === v }, t(l))));
+  main.replaceChildren(h('div', { class: 'ab' + (narrow ? ' narrow' : '') },
     h('div', { class: 'ab-side' },
       h('div', { class: 'group' }, h('h2', null, t('Address books'), h('button', { class: 'icon-btn', title: t('New address book'), 'aria-label': t('New address book'), onclick: newBook }, icon('plus'))),
         books.map(b => h('button', { class: 'pick' + (b.guid === book.guid ? ' on' : ''), onclick: () => go('books', b.guid) }, h('span', { class: 'trunc' }, bookName(b)), h('small', null, b.peer_count))),
@@ -510,18 +619,21 @@ async function booksView(main) {
     h('div', { class: 'ab-main' },
       h('div', { class: 'ab-select' }, h('select', { 'aria-label': t('Address book'), onchange: e => go('books', e.target.value) }, books.map(b => h('option', { value: b.guid, selected: b.guid === book.guid }, `${bookName(b)} (${b.peer_count})`))),
         h('button', { class: 'btn', onclick: newBook, 'aria-label': t('New address book') }, '+')),
-      h('div', { class: 'toolbar' }, h('h1', { class: 'trunc' }, bookName(book)),
+      h('div', { class: 'toolbar' }, sideBtn, h('h1', { class: 'trunc' }, bookName(book)),
         book.owner_id !== state.user.id && h('span', { class: 'chip blue' }, t('Shared by {0}', book.owner)),
         !canEdit && h('span', { class: 'chip' }, t('Read only')),
-        h('input', { class: 'search', type: 'search', placeholder: t('Search'), 'aria-label': t('Search'), value: ab.q, oninput: e => { ab.q = e.target.value; paint(); } }),
+        h('input', { class: 'search', type: 'search', placeholder: t('Search all address books'), 'aria-label': t('Search all address books'), value: ab.q, oninput: e => { ab.q = e.target.value; paint(); } }),
         modeBtn, canEdit && h('button', { class: 'btn primary', onclick: () => editPeer() }, t('Add device')), more),
-      batch, tiles, empty)));
+      h('div', { class: 'filters' }, count, tagChips,
+        seg(ab.status, [['all', t('All')], ['on', t('Online')], ['off', t('Offline')]], v => { ab.status = v; paint(); }), sortSel),
+      batch, results, empty)));
   for (const el of main.querySelectorAll('.ab-side .check')) { el.style.margin = '8px'; el.style.fontSize = '12.5px'; }
   paint();
+  if (ab.focus) { ab.focus = false; main.querySelector('.toolbar .search')?.focus(); }
 }
 
 // ---------- devices ----------
-const dev = { q: '', sel: new Set() };
+const dev = { q: '', sel: new Set(), status: 'all', sort: localStorage.getItem('rdl-dev-sort') || 'status' };
 async function devicesView(main) {
   const { devices } = await api('GET', '/devices');
   const admin = state.user.is_admin;
@@ -554,8 +666,8 @@ async function devicesView(main) {
   const patch = (d, body) => api('PATCH', '/devices/' + encodeURIComponent(d.id), body);
   const row = d => {
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
-      { label: t('Connect'), run: () => { location.href = connectURL(d.id); } },
-      { label: t('Copy ID'), run: () => copy(d.id) },
+      ...connectItems(d.id, d.os),
+      '-',
       { label: t('Add to address book'), run: () => addToBook([d]) },
       admin && { label: t('Set owner'), run: async () => {
         const { users } = await api('GET', '/users');
@@ -570,12 +682,13 @@ async function devicesView(main) {
       admin && { label: t('Forget'), danger: true, run: async () => { if (await confirmBox(t('Forget {0}? It comes back when it reports again.', d.hostname || fmtId(d.id)), t('Forget'))) { await api('DELETE', '/devices/' + encodeURIComponent(d.id)); render(); } } },
     ]) }, icon('more'));
     const art = h('div', { class: 'peer-art mini' }, platformIcon(d.os)); art.style.background = peerColor(d.id, platformOf(d.os));
-    return h('div', { class: 'dev' }, h('input', { type: 'checkbox', 'aria-label': t('Select'), checked: dev.sel.has(d.id), onchange: e => { e.target.checked ? dev.sel.add(d.id) : dev.sel.delete(d.id); bar(); } }), art,
+    return h('div', { class: 'dev', ondblclick: e => { if (!e.target.closest('button, input')) openInApp(d.id); } }, h('input', { type: 'checkbox', 'aria-label': t('Select'), checked: dev.sel.has(d.id), onchange: e => { e.target.checked ? dev.sel.add(d.id) : dev.sel.delete(d.id); bar(); } }), art,
       h('div', { class: 'grow' }, h('div', { class: 'row' }, h('span', { class: 'dot ' + (d.online ? 'on' : '') }), h('b', { class: 'trunc' }, d.hostname || fmtId(d.id)), d.user && h('span', { class: 'chip blue' }, d.user),
         d.group && h('span', { class: 'chip' }, d.group), d.conns.length > 0 && h('span', { class: 'chip blue' }, t('{0} active', d.conns.length))),
       h('div', { class: 'sub trunc' }, [fmtId(d.id), d.username, d.os, d.version && 'v' + d.version].filter(Boolean).join(', ')),
       d.note && h('div', { class: 'sub trunc' }, d.note)),
-      h('div', { class: 'sub wide-only' }, d.online ? t('Online') : t('Last seen {0}', ago(d.last_seen))), more);
+      h('div', { class: 'sub wide-only' }, d.online ? t('Online') : t('Last seen {0}', ago(d.last_seen))),
+      h('button', { class: 'icon-btn go', title: t('Connect'), 'aria-label': t('Connect'), onclick: () => openInApp(d.id) }, icon('go')), more);
   };
   const list = h('div', { class: 'panel list' }), tools = h('div', { class: 'row batch' });
   const bar = () => {
@@ -588,14 +701,20 @@ async function devicesView(main) {
   };
   const paint = () => {
     const q = dev.q.trim().toLowerCase();
-    const shown = devices.filter(d => !q || [d.id, d.hostname, d.username, d.os, d.user, d.group, d.note, d.last_ip].some(v => String(v || '').toLowerCase().includes(q)));
+    const name = d => (d.hostname || d.id).toLowerCase(), byName = (a, b) => name(a).localeCompare(name(b), lang, { numeric: true });
+    const sorts = { status: (a, b) => (b.online - a.online) || byName(a, b), name: byName, seen: (a, b) => b.last_seen - a.last_seen };
+    const shown = devices.filter(d => (dev.status === 'all' || d.online === (dev.status === 'on'))
+      && (!q || [d.id, d.hostname, d.username, d.os, d.user, d.group, d.note, d.last_ip].some(v => String(v || '').toLowerCase().includes(q)))).sort(sorts[dev.sort] || sorts.status);
     list.replaceChildren(...(shown.length ? shown.map(row) : [h('div', { class: 'empty' }, h('span', null, devices.length ? h('b', null, t('Nothing matches the filter'))
       : [h('b', null, t('No device has reported to this server yet')), t('Devices appear here once RustDesk on them uses this server as API server.')]))]));
     bar();
   };
   const on = devices.filter(d => d.online).length;
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Devices')), h('span', { class: 'muted' }, `${devices.length} ${t('devices')}, ${on} ${t('online')}`),
-    h('input', { class: 'search', type: 'search', placeholder: t('Search'), 'aria-label': t('Search'), value: dev.q, oninput: e => { dev.q = e.target.value; paint(); } })), tools, list));
+    seg(dev.status, [['all', t('All')], ['on', t('Online')], ['off', t('Offline')]], v => { dev.status = v; paint(); }),
+    h('select', { class: 'sort', 'aria-label': t('Sort'), onchange: e => { dev.sort = e.target.value; localStorage.setItem('rdl-dev-sort', dev.sort); paint(); } },
+      [['status', 'Online first'], ['name', 'Name'], ['seen', 'Last seen']].map(([v, l]) => h('option', { value: v, selected: dev.sort === v }, t(l)))),
+    h('input', { class: 'search', type: 'search', placeholder: t('Search devices'), 'aria-label': t('Search devices'), value: dev.q, oninput: e => { dev.q = e.target.value; paint(); } })), tools, list));
   paint();
 }
 const platformOf = os => { const s = (os || '').toLowerCase(); return s.includes('win') ? 'Windows' : s.includes('mac') ? 'Mac OS' : s.includes('android') ? 'Android' : s.includes('linux') || s.includes('ubuntu') || s.includes('debian') ? 'Linux' : ''; };

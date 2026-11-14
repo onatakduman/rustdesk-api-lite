@@ -39,6 +39,11 @@ Node, no external database.
 - **Enrolment**: custom clients can place themselves under an owner, a group
   and a shared address book through their `preset-*` options (off by default).
 - **Console** for all of the above, usable on a phone, in English and Turkish.
+- **Find and connect from the console**: one search over every address book you can
+  read and the devices (`/` or Ctrl/Cmd+K), filters for online and offline, sorting,
+  tiles or a list with columns. A double-click or the arrow opens the device in the
+  RustDesk app; the menu also offers file transfer, camera, terminal, TCP tunnel, RDP
+  and a connection through the relay. Both side panels fold away.
 - **Entries on other servers**: an address-book entry can carry its own server
   and key (`123456789@host?key=…`); the console edits these as separate fields
   and can pin a server on every bare ID of a book in one step.

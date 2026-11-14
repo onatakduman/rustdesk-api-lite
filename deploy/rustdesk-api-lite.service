@@ -1,6 +1,12 @@
 # systemd unit for rustdesk-api-lite.
-# Install: copy the binary to /usr/local/bin, this file to /etc/systemd/system/,
-# then: systemctl daemon-reload && systemctl enable --now rustdesk-api-lite
+# Install:
+#   install -m 755 rustdesk-api-lite /usr/local/bin/
+#   useradd --system --no-create-home --shell /usr/sbin/nologin rustdesk-api-lite
+#   cp deploy/rustdesk-api-lite.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now rustdesk-api-lite
+# The first start prints the password of the "admin" account: journalctl -u rustdesk-api-lite
+# Command-line use needs the same user and database, for example:
+#   sudo -u rustdesk-api-lite rustdesk-api-lite user list -db /var/lib/rustdesk-api-lite/rustdesk-api-lite.db
 [Unit]
 Description=RustDesk API Lite (accounts, address books, console)
 After=network-online.target
@@ -17,8 +23,9 @@ Environment=RDL_TRUST_PROXY=1
 #Environment=RDL_ID_SERVER=rustdesk.example.com
 #Environment=RDL_RELAY_SERVER=rustdesk.example.com
 #Environment=RDL_KEY=<public key of hbbs, the content of id_ed25519.pub>
-DynamicUser=yes
+User=rustdesk-api-lite
 StateDirectory=rustdesk-api-lite
+StateDirectoryMode=0700
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes

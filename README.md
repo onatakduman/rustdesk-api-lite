@@ -86,6 +86,10 @@ rustdesk-api-lite user list
 rustdesk-api-lite import-lejianwen /path/to/rustdeskapi.db
 ```
 
+Run it as the service user and against the service database (`-db …`) when
+the server is installed with the systemd unit; take a copy of the source
+database first if the old server is still running.
+
 The source database is opened read-only. The import can be repeated: accounts
 are matched by user name, imported address books are replaced with the source
 content, the connection log continues where the last run stopped. Register the

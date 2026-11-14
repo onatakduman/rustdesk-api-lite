@@ -147,6 +147,7 @@ func (s *Server) consoleRoutes() {
 
 	m.HandleFunc("GET "+p+"/address-books", s.authed(false, s.cBooks))
 	m.HandleFunc("GET "+p+"/search-index", s.authed(false, s.cSearchIndex))
+	m.HandleFunc("POST "+p+"/online", s.authed(false, s.cOnline))
 	m.HandleFunc("POST "+p+"/address-books", s.authed(false, s.cBookCreate))
 	m.HandleFunc("GET "+p+"/address-books/{guid}", s.authed(false, s.cBook))
 	m.HandleFunc("PATCH "+p+"/address-books/{guid}", s.authed(false, s.cBookPatch))
@@ -934,6 +935,7 @@ func (s *Server) cSettings(c *consoleCtx) {
 		"server_key":    s.st.Setting(keyServerKey),
 		"public_url":    s.st.Setting(keyPublicURL),
 		"allow_presets": s.st.Setting(keyAllowPresets) == "1",
+		"online_lookup": s.st.Setting(keyOnlineLookup) != "0",
 		"log_days":      s.st.Setting(keyLogDays),
 		"idle_days":     s.st.Setting(keyIdleDays),
 		"hbbs_cmd":      s.cmdAddr("hbbs"),
@@ -969,6 +971,15 @@ func (s *Server) cSettingsPut(c *consoleCtx) {
 			v = "1"
 		}
 		if c.err(s.st.SetSetting(keyAllowPresets, v)) {
+			return
+		}
+	}
+	if raw, ok := in["online_lookup"]; ok {
+		v := "1"
+		if string(raw) == "false" {
+			v = "0"
+		}
+		if c.err(s.st.SetSetting(keyOnlineLookup, v)) {
 			return
 		}
 	}

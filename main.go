@@ -34,6 +34,9 @@ Usage:
   rustdesk-api-lite user add <name> [-admin]  create an account (password is read from stdin)
   rustdesk-api-lite user passwd <name>        set a password (read from stdin)
   rustdesk-api-lite user list                 list accounts
+  rustdesk-api-lite token add <user> <name>   create an API token for an account (printed once)
+  rustdesk-api-lite share <book> <user> <view|edit|full|none>
+                                              share an address book with an account
   rustdesk-api-lite import-lejianwen <file>   import users, address books and devices from a
                                               lejianwen/rustdesk-api SQLite database
   rustdesk-api-lite version
@@ -97,6 +100,10 @@ func main() {
 		serve(open(), *listen, *trust)
 	case "user":
 		userCmd(open(), pos, *admin)
+	case "token":
+		tokenCmd(open(), pos)
+	case "share":
+		shareCmd(open(), pos)
 	case "import-lejianwen":
 		if len(pos) != 1 {
 			log.Fatal("usage: rustdesk-api-lite import-lejianwen <rustdeskapi.db>")
@@ -158,6 +165,65 @@ func serve(st *store.Store, listen string, trust bool) {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+// tokenCmd creates an API token, for scripts on machines where nobody signs in to the console.
+func tokenCmd(st *store.Store, pos []string) {
+	defer st.Close()
+	if len(pos) != 3 || pos[0] != "add" || strings.TrimSpace(pos[2]) == "" {
+		log.Fatal("usage: rustdesk-api-lite token add <user> <name>")
+	}
+	u, err := st.UserByUsername(pos[1])
+	if err != nil {
+		log.Fatalf("no such user: %s", pos[1])
+	}
+	tok, err := st.NewToken(&store.Token{UserID: u.ID, Kind: "api", Name: strings.TrimSpace(pos[2])}, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(tok)
+}
+
+// shareCmd gives an account access to a shared address book, or takes it away.
+func shareCmd(st *store.Store, pos []string) {
+	defer st.Close()
+	const usage = "usage: rustdesk-api-lite share <book> <user> <view|edit|full|none>"
+	if len(pos) != 3 {
+		log.Fatal(usage)
+	}
+	rule, ok := map[string]int{"none": 0, "view": store.RuleRead, "edit": store.RuleReadWrite, "full": store.RuleFull}[strings.ToLower(pos[2])]
+	if !ok {
+		log.Fatal(usage)
+	}
+	guid, err := st.ABByName(pos[0])
+	if err != nil {
+		log.Fatalf("no shared address book named %q", pos[0])
+	}
+	u, err := st.UserByUsername(pos[1])
+	if err != nil {
+		log.Fatalf("no such user: %s", pos[1])
+	}
+	shares, err := st.Shares(guid)
+	if err != nil {
+		log.Fatal(err)
+	}
+	kept := shares[:0]
+	for _, sh := range shares {
+		if sh.UserID != u.ID {
+			kept = append(kept, sh)
+		}
+	}
+	if rule > 0 {
+		kept = append(kept, store.Share{UserID: u.ID, Rule: rule})
+	}
+	if err := st.SetShares(guid, kept); err != nil {
+		log.Fatal(err)
+	}
+	if rule == 0 {
+		fmt.Printf("%s: %s no longer has access\n", pos[0], u.Username)
+		return
+	}
+	fmt.Printf("%s: %s now has %s access\n", pos[0], u.Username, strings.ToLower(pos[2]))
 }
 
 func readPassword() string {

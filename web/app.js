@@ -84,6 +84,10 @@ const TR = {
   'Remote desktop': 'Uzak masaüstü', 'File transfer': 'Dosya aktarımı', 'View camera': 'Kamerayı görüntüle', 'Terminal': 'Terminal', 'TCP tunnel': 'TCP tüneli',
   'Remote desktop through the relay': 'Aktarma sunucusu üzerinden uzak masaüstü', 'Copy link': 'Bağlantı linkini kopyala',
   'All': 'Tümü', 'Sort': 'Sırala', 'As added': 'Eklenme sırası', 'Online first': 'Önce çevrimiçi', 'Last seen': 'Son görülme', '{0} entries': '{0} kayıt', '1 entry': '1 kayıt', '{0} online': '{0} çevrimiçi',
+  'Ask ID servers which devices are online': 'Hangi cihazların çevrimiçi olduğunu ID sunucularına sor',
+  'For the dots in the address books this server asks the ID server of each entry, also the servers of other fleets. Off, only devices that report to this server show a state.': 'Adres defterlerindeki durum noktaları için bu sunucu her kaydın ID sunucusuna sorar; başka filoların sunucularına da. Kapalıyken yalnız bu sunucuya bildirim yapan cihazların durumu görünür.',
+  'Date and time': 'Tarih ve saat', 'Date format': 'Tarih biçimi', 'Time zone': 'Saat dilimi', 'Automatic': 'Otomatik', 'This device ({0})': 'Bu cihaz ({0})',
+  'Both are kept in this browser and apply to every date the console shows.': 'İkisi de bu tarayıcıda saklanır ve konsolun gösterdiği tüm tarihlere uygulanır.',
   'Default password': 'Varsayılan parola', 'Offered by the app for entries of this book that have no password of their own. Stored as plain text.': 'Bu defterde kendi parolası olmayan kayıtlar için uygulamanın kullandığı parola. Düz metin saklanır.', 'Version {0}': 'Sürüm {0}', 'More': 'Diğer', 'Sign-in': 'Giriş', 'Role': 'Rol', 'User': 'Kullanıcı',
 };
 let lang = localStorage.getItem('rdl-lang') || ((navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en');
@@ -161,7 +165,20 @@ function ago(ts) {
   if (s < 86400) return t('{0} h ago', Math.round(s / 3600));
   return t('{0} d ago', Math.round(s / 86400));
 }
-const when = ts => ts ? new Date(ts * 1000).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' }) : '';
+// Dates follow the viewer: a format and a time zone chosen in the settings, kept in this browser.
+// Without a choice the format follows the language of the console and the zone is the device's.
+let dateFmt = localStorage.getItem('rdl-date') || 'auto', timeZone = localStorage.getItem('rdl-tz') || '';
+function when(ts, fmt = dateFmt) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000), tz = timeZone || undefined;
+  try {
+    if (fmt === 'auto') return d.toLocaleString(lang === 'tr' ? 'tr-TR' : undefined, { dateStyle: 'short', timeStyle: 'short', timeZone: tz });
+    const part = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz }).formatToParts(d).map(x => [x.type, x.value]));
+    if (fmt === 'iso') return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+    if (fmt === 'mdy') return `${part.month}/${part.day}/${part.year} ${part.hour % 12 || 12}:${part.minute} ${part.hour < 12 ? 'AM' : 'PM'}`;
+    return `${part.day}.${part.month}.${part.year} ${part.hour}:${part.minute}`;
+  } catch { return d.toLocaleString(); } // a time zone name this browser does not know
+}
 function span(sec) {
   if (sec < 60) return sec + ' s';
   if (sec < 3600) return Math.round(sec / 60) + ' min';
@@ -372,7 +389,24 @@ async function booksView(main) {
 
   // Entries pinned to this very server are still ours: their state is known.
   const own = (state.overview?.client.id_server || '').replace(/:\d+$/, '');
-  const stateOf = p => { const s = splitId(p.id); return s.server && s.server.replace(/:\d+$/, '') !== own ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown'; };
+  // What the entry's own ID server says wins; without an answer, a device on this server
+  // still has the state it reports here itself, and anything else is unknown.
+  const live = new Map(), asked = new Set();
+  const stateOf = p => {
+    if (live.has(p.id)) return live.get(p.id) ? 'on' : '';
+    const s = splitId(p.id);
+    return s.server && s.server.replace(/:\d+$/, '') !== own ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown';
+  };
+  const askOnline = peers => {
+    const ids = [...new Set(peers.map(p => p.id).filter(id => !asked.has(id)))];
+    if (!ids.length) return;
+    for (const id of ids) asked.add(id);
+    api('POST', '/online', { ids }).then(r => {
+      let changed = false;
+      for (const [id, on] of Object.entries(r.online || {})) if (live.get(id) !== on) { live.set(id, on); changed = true; }
+      if (changed && document.body.contains(results)) paint();
+    }).catch(() => {});
+  };
   const nameOf = p => (p.alias || splitId(p.id).id).toLowerCase();
   const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), lang, { numeric: true });
   const rank = p => ['on', '', 'unknown'].indexOf(stateOf(p));
@@ -406,6 +440,7 @@ async function booksView(main) {
       });
       return SORTS[ab.sort] ? out.sort(SORTS[ab.sort]) : out;
     };
+    askOnline(q && index ? [...data.peers, ...index.flatMap(d => d.peers)] : data.peers);
     const groups = [{ d: data, peers: pick(data) }];
     let found = [];
     if (q) {
@@ -630,6 +665,9 @@ async function booksView(main) {
   for (const el of main.querySelectorAll('.ab-side .check')) { el.style.margin = '8px'; el.style.fontSize = '12.5px'; }
   paint();
   if (ab.focus) { ab.focus = false; main.querySelector('.toolbar .search')?.focus(); }
+  // Ask the ID servers again every half minute while this view is on screen.
+  const again = () => { if (!document.body.contains(results)) return; asked.clear(); paint(); setTimeout(again, 30000); };
+  setTimeout(again, 30000);
 }
 
 // ---------- devices ----------
@@ -849,8 +887,10 @@ async function settingsView(main) {
       e.preventDefault();
       const f = new FormData(devForm), strategy = {};
       for (const line of f.get('strategy').split('\n')) { const i = line.indexOf('='); if (i > 0) strategy[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
-      try { await api('PUT', '/settings', { allow_presets: f.has('allow_presets'), log_days: f.get('log_days'), idle_days: f.get('idle_days'), strategy }); toast(t('Saved')); } catch (ex) { toast(ex.message); }
+      try { await api('PUT', '/settings', { allow_presets: f.has('allow_presets'), online_lookup: f.has('online_lookup'), log_days: f.get('log_days'), idle_days: f.get('idle_days'), strategy }); toast(t('Saved')); } catch (ex) { toast(ex.message); }
     } },
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'online_lookup', checked: cfg.online_lookup }), t('Ask ID servers which devices are online')),
+      h('p', { class: 'muted hint' }, t('For the dots in the address books this server asks the ID server of each entry, also the servers of other fleets. Off, only devices that report to this server show a state.')),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'allow_presets', checked: cfg.allow_presets }), t('Let installations enrol themselves')),
       h('p', { class: 'muted hint' }, t('A custom RustDesk client can name its owner, group and address book (preset options). Leave off unless you deploy such clients.')),
       field(t('Keep logs for (days)'), text('log_days', cfg.log_days, { inputmode: 'numeric' }), t('Empty keeps them forever.')),
@@ -919,6 +959,15 @@ async function settingsView(main) {
   const langSel = h('select', { 'aria-label': t('Language'), onchange: e => { lang = e.target.value; localStorage.setItem('rdl-lang', lang); render(); } },
     h('option', { value: 'en', selected: lang === 'en' }, 'English'), h('option', { value: 'tr', selected: lang === 'tr' }, 'Türkçe'));
   langSel.style.width = 'auto';
+  const now = Date.now() / 1000, deviceZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  if (timeZone && !zones.includes(timeZone)) zones.unshift(timeZone);
+  const fmtSel = h('select', { name: 'fmt', onchange: e => { dateFmt = e.target.value; localStorage.setItem('rdl-date', dateFmt); render(); } },
+    [['auto', t('Automatic')], ['dmy', ''], ['iso', ''], ['mdy', '']].map(([v, l]) => h('option', { value: v, selected: dateFmt === v }, [l, when(now, v)].filter(Boolean).join(': '))));
+  const zoneSel = h('select', { name: 'tz', onchange: e => { timeZone = e.target.value; timeZone ? localStorage.setItem('rdl-tz', timeZone) : localStorage.removeItem('rdl-tz'); render(); } },
+    h('option', { value: '', selected: !timeZone }, t('This device ({0})', deviceZone)), zones.map(z => h('option', { value: z, selected: timeZone === z }, z)));
+  panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Date and time'))),
+    h('div', { class: 'pad' }, field(t('Date format'), fmtSel), field(t('Time zone'), zoneSel, t('Both are kept in this browser and apply to every date the console shows.')))));
   panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Language')), langSel, h('button', { class: 'btn small', onclick: signOut }, t('Sign out')))));
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Settings'))), panels));
 }

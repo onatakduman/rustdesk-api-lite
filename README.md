@@ -44,6 +44,11 @@ Node, no external database.
   tiles or a list with columns. A double-click or the arrow opens the device in the
   RustDesk app; the menu also offers file transfer, camera, terminal, TCP tunnel, RDP
   and a connection through the relay. Both side panels fold away.
+- **Online state from the ID servers**: for the dots in the address books the
+  server asks the ID server (hbbs) of every entry, also for entries on other
+  servers, with the same query the RustDesk app uses. Only public addresses are
+  asked, apart from your own ID server; it can be switched off in the settings.
+- **Dates your way**: date format and time zone are a per-browser choice.
 - **Entries on other servers**: an address-book entry can carry its own server
   and key (`123456789@host?key=…`); the console edits these as separate fields
   and can pin a server on every bare ID of a book in one step.
@@ -98,6 +103,8 @@ settings on the first start; later they are edited in the console.
 rustdesk-api-lite user add alice -admin     # password is read from stdin
 rustdesk-api-lite user passwd alice
 rustdesk-api-lite user list
+rustdesk-api-lite token add alice "nightly sync"   # an API token for scripts, printed once
+rustdesk-api-lite share "Field" alice edit        # view | edit | full | none
 ```
 
 ## Moving from lejianwen/rustdesk-api

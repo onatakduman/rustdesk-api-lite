@@ -41,11 +41,12 @@ type Server struct {
 	nonces *nonceSet
 	kicks  *kickList
 	tfa    *challenges
+	online *onlineCache
 }
 
 // New builds the application.
 func New(st *store.Store, cfg Config) *Server {
-	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}}
+	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}, online: newOnlineCache()}
 	s.clientRoutes()
 	s.oidcRoutes()
 	s.consoleRoutes()
@@ -81,6 +82,8 @@ const (
 	// Where hbbs and hbbr take administration commands.
 	keyHbbsCmd = "hbbs_cmd_addr"
 	keyHbbrCmd = "hbbr_cmd_addr"
+	// keyOnlineLookup set to "0" stops the console from asking ID servers which devices are online.
+	keyOnlineLookup = "online_lookup"
 )
 
 // publicURL is the externally visible base URL, without a trailing slash.

@@ -15,6 +15,7 @@ INSERT INTO users(id, username, email, password, nickname, group_id, is_admin, s
  (1, 'ada', 'ada@example.test', '{{HASH}}', 'Ada', 1, 1, 1),
  (2, 'bob', 'bob@example.test', 'not-a-bcrypt-hash', '', 2, 0, 1),
  (3, 'cy', '', '{{HASH}}', '', 2, 0, 2);
+INSERT INTO groups(id, name, type) VALUES (1, 'Default Group', 1), (2, 'Share Group', 2);
 INSERT INTO oauths(op, oauth_type, client_id, client_secret, auto_register, scopes, issuer) VALUES ('google', 'google', 'cid', 'sec', 1, '', 'https://accounts.google.com');
 INSERT INTO user_thirds(user_id, open_id, email, op) VALUES (1, 'sub-1', 'ada@example.test', 'google');
 INSERT INTO user_tokens(user_id, device_uuid, device_id, token, expired_at, created_at) VALUES
@@ -72,6 +73,10 @@ func TestLejianwen(t *testing.T) {
 	bob, _ := st.UserByUsername("bob")
 	if cy, _ := st.UserByUsername("cy"); !cy.Disabled || bob.HasPassword || !ada.IsAdmin || ada.DisplayName != "Ada" {
 		t.Fatal("user fields not carried over")
+	}
+	groups, _ := st.Groups()
+	if len(groups) != 2 || groups[1].Name != "Share Group" || !groups[1].Shared || groups[1].Members != 2 || bob.GroupID != groups[1].ID || ada.GroupID != groups[0].ID {
+		t.Fatalf("groups: %+v", groups)
 	}
 	if u, err := st.UserByIdentity("google", "sub-1"); err != nil || u.ID != ada.ID {
 		t.Fatalf("identity: %v", err)

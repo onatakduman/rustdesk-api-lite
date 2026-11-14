@@ -162,6 +162,10 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("POST "+p+"/users/{id}/password", s.authed(true, s.cUserPassword))
 	m.HandleFunc("DELETE "+p+"/users/{id}", s.authed(true, s.cUserDelete))
 
+	m.HandleFunc("GET "+p+"/groups", s.authed(false, s.cGroups))
+	m.HandleFunc("PUT "+p+"/groups/{id}", s.authed(true, s.cGroupPut))
+	m.HandleFunc("DELETE "+p+"/groups/{id}", s.authed(true, s.cGroupDelete))
+
 	m.HandleFunc("GET "+p+"/sessions", s.authed(false, s.cSessions))
 	m.HandleFunc("DELETE "+p+"/sessions/{id}", s.authed(false, s.cSessionDelete))
 	m.HandleFunc("POST "+p+"/tokens", s.authed(false, s.cTokenCreate))
@@ -173,6 +177,7 @@ func (s *Server) consoleRoutes() {
 
 	m.HandleFunc("GET "+p+"/settings", s.authed(true, s.cSettings))
 	m.HandleFunc("PUT "+p+"/settings", s.authed(true, s.cSettingsPut))
+	m.HandleFunc("POST "+p+"/server-cmd", s.authed(true, s.cServerCmd))
 	m.HandleFunc("PUT "+p+"/oidc/{name}", s.authed(true, s.cOIDCPut))
 	m.HandleFunc("DELETE "+p+"/oidc/{name}", s.authed(true, s.cOIDCDelete))
 
@@ -308,11 +313,7 @@ func (s *Server) cOwnUnlink(c *consoleCtx) {
 // ---- devices ----
 
 func (s *Server) cDevices(c *consoleCtx) {
-	scope := c.user.ID
-	if c.user.IsAdmin {
-		scope = 0
-	}
-	ds, err := s.st.Devices(scope)
+	ds, err := s.st.DevicesFor(s.st.VisibleUsers(c.user))
 	if c.err(err) {
 		return
 	}
@@ -413,11 +414,26 @@ func (s *Server) cBooks(c *consoleCtx) {
 }
 
 func (s *Server) cBookCreate(c *consoleCtx) {
-	var in struct{ Name, Note string }
+	var in struct {
+		Name, Note string
+		OwnerID    int64 `json:"owner_id"`
+	}
 	if !c.body(&in) {
 		return
 	}
-	guid, err := s.st.CreateAB(c.user.ID, strings.TrimSpace(in.Name), in.Note)
+	owner := c.user.ID
+	if in.OwnerID != 0 && in.OwnerID != owner {
+		// Administrators may set up a book for somebody else.
+		if !c.user.IsAdmin {
+			c.fail(http.StatusForbidden, "administrator rights required")
+			return
+		}
+		if _, err := s.st.UserByID(in.OwnerID); c.err(err) {
+			return
+		}
+		owner = in.OwnerID
+	}
+	guid, err := s.st.CreateAB(owner, strings.TrimSpace(in.Name), in.Note)
 	if c.err(err) {
 		return
 	}
@@ -651,7 +667,8 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 		DisplayName *string `json:"display_name"`
 		IsAdmin     *bool   `json:"is_admin"`
 		Disabled    *bool
-		ResetTOTP   bool `json:"reset_totp"`
+		GroupID     *int64 `json:"group_id"`
+		ResetTOTP   bool   `json:"reset_totp"`
 	}{}
 	if !c.body(&in) {
 		return
@@ -671,6 +688,9 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 	}
 	if in.Disabled != nil {
 		u.Disabled = *in.Disabled
+	}
+	if in.GroupID != nil {
+		u.GroupID = *in.GroupID
 	}
 	if wasAdmin && !(u.IsAdmin && !u.Disabled) && s.st.CountAdmins() <= 1 {
 		c.fail(http.StatusBadRequest, "this is the last administrator")
@@ -722,6 +742,47 @@ func (s *Server) cUserDelete(c *consoleCtx) {
 		return
 	}
 	if c.err(s.st.DeleteUser(u.ID)) {
+		return
+	}
+	c.done()
+}
+
+// ---- user groups ----
+
+func (s *Server) cGroups(c *consoleCtx) {
+	gs, err := s.st.Groups()
+	if c.err(err) {
+		return
+	}
+	c.ok(map[string]any{"groups": gs})
+}
+
+// cGroupPut creates (id "new") or updates a group.
+func (s *Server) cGroupPut(c *consoleCtx) {
+	var in struct {
+		Name   string
+		Shared bool
+	}
+	if !c.body(&in) {
+		return
+	}
+	g := &store.Group{Name: in.Name, Shared: in.Shared}
+	if id := c.r.PathValue("id"); id != "new" {
+		g.ID, _ = strconv.ParseInt(id, 10, 64)
+		if g.ID <= 0 {
+			c.fail(http.StatusNotFound, "not found")
+			return
+		}
+	}
+	if c.err(s.st.SaveGroup(g)) {
+		return
+	}
+	c.ok(map[string]any{"group": g})
+}
+
+func (s *Server) cGroupDelete(c *consoleCtx) {
+	id, _ := strconv.ParseInt(c.r.PathValue("id"), 10, 64)
+	if c.err(s.st.DeleteGroup(id)) {
 		return
 	}
 	c.done()
@@ -837,6 +898,9 @@ func (s *Server) cSettings(c *consoleCtx) {
 		"public_url":    s.st.Setting(keyPublicURL),
 		"allow_presets": s.st.Setting(keyAllowPresets) == "1",
 		"log_days":      s.st.Setting(keyLogDays),
+		"idle_days":     s.st.Setting(keyIdleDays),
+		"hbbs_cmd":      s.cmdAddr("hbbs"),
+		"hbbr_cmd":      s.cmdAddr("hbbr"),
 		"strategy":      strategyOptions(s.st.Setting(keyStrategy)),
 		"oidc":          ps,
 		"oidc_callback": s.publicURL(c.r) + oidcCallbackPath,
@@ -871,14 +935,24 @@ func (s *Server) cSettingsPut(c *consoleCtx) {
 			return
 		}
 	}
-	if raw, ok := in["log_days"]; ok {
-		var v string
-		_ = json.Unmarshal(raw, &v)
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err != nil || n < 0 {
-			v = ""
+	for field, key := range map[string]string{"log_days": keyLogDays, "idle_days": keyIdleDays} {
+		if raw, ok := in[field]; ok {
+			var v string
+			_ = json.Unmarshal(raw, &v)
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err != nil || n <= 0 {
+				v = ""
+			}
+			if c.err(s.st.SetSetting(key, strings.TrimSpace(v))) {
+				return
+			}
 		}
-		if c.err(s.st.SetSetting(keyLogDays, strings.TrimSpace(v))) {
-			return
+	}
+	for field, key := range map[string]string{"hbbs_cmd": keyHbbsCmd, "hbbr_cmd": keyHbbrCmd} {
+		if raw, ok := in[field]; ok {
+			var v string
+			if json.Unmarshal(raw, &v) != nil || c.err(s.st.SetSetting(key, strings.TrimSpace(v))) {
+				return
+			}
 		}
 	}
 	if raw, ok := in["strategy"]; ok {

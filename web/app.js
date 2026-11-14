@@ -48,6 +48,15 @@ const TR = {
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
   'Language': 'Dil', 'devices': 'cihaz', 'online': 'çevrimiçi', 'users': 'kullanıcı', 'address book entries': 'adres defteri kaydı', 'Overview': 'Genel durum',
   'All address books': 'Tüm adres defterleri',
+  'Select': 'Seç', '{0} selected': '{0} seçili', 'Add {0} devices to an address book': '{0} cihazı adres defterine ekle', 'Devices that are already in the book are skipped.': 'Defterde zaten olan cihazlar atlanır.',
+  '{0} added, {1} already there': '{0} eklendi, {1} zaten vardı', 'Forget {0} devices? They come back when they report again.': '{0} cihaz unutulsun mu? Yeniden bildirim yapınca geri gelirler.',
+  'Clear': 'Temizle', 'Everyone in {0}': '{0} grubundaki herkes', 'People': 'Kişiler',
+  'Sign out apps not used for (days)': 'Şu kadar gün kullanılmayan uygulamaların oturumunu kapat', 'Empty never signs them out.': 'Boş bırakılırsa hiç kapatılmaz.',
+  'Server commands': 'Sunucu komutları', 'ID server (hbbs)': 'ID sunucusu (hbbs)', 'Relay server (hbbr)': 'Aktarma sunucusu (hbbr)', 'Run': 'Çalıştır', 'Command': 'Komut',
+  'Type h to list the commands the server accepts. Works when hbbs and hbbr run on this machine.': 'Sunucunun kabul ettiği komutları görmek için h yaz. hbbs ve hbbr bu makinede çalışıyorsa çalışır.',
+  'Groups': 'Gruplar', 'New group': 'Yeni grup', 'Edit group': 'Grubu düzenle', 'No group': 'Grup yok', 'Shared group': 'Paylaşımlı grup', 'Members see each other\'s devices in the RustDesk app': 'Üyeler RustDesk uygulamasında birbirinin cihazlarını görür',
+  'In a regular group everybody sees only their own devices.': 'Normal grupta herkes yalnız kendi cihazlarını görür.', '{0} members': '{0} üye', 'Delete the group {0}? Its members stay, without a group.': '{0} grubu silinsin mi? Üyeleri grupsuz kalır.',
+  'No groups yet': 'Henüz grup yok',
   'Two-step sign-in': 'İki adımlı giriş', 'On': 'Açık', 'Off': 'Kapalı', 'Turn on': 'Aç', 'Turn off': 'Kapat', 'Code': 'Kod', 'Code from your authenticator app': 'Doğrulama uygulamandaki kod',
   'Add this key to an authenticator app, then enter the code it shows.': 'Bu anahtarı bir doğrulama uygulamasına ekle, sonra gösterdiği kodu gir.', 'Open in authenticator app': 'Doğrulama uygulamasında aç',
   'Besides your password, signing in will ask for a code from your phone. Sign-in through a provider is not affected.': 'Girişte parolana ek olarak telefonundaki kod sorulur. Sağlayıcıyla giriş bundan etkilenmez.',
@@ -365,13 +374,16 @@ async function booksView(main) {
     }) && reload();
   }
   async function shareBook() {
-    const { users } = await api('GET', '/users');
+    const [{ users }, { groups }] = await Promise.all([api('GET', '/users'), api('GET', '/groups')]);
     const others = users.filter(u => u.id !== book.owner_id && !u.disabled);
     const rules = [[0, 'No access'], [1, 'Can view'], [2, 'Can edit'], [3, 'Full control']];
-    await dialog(t('Share {0}', book.name), others.length ? others.map(u => field(u.username, h('select', { name: 'u' + u.id },
-      rules.map(([v, l]) => h('option', { value: v, selected: (data.shares.find(s => s.user_id === u.id)?.rule || 0) === v }, t(l))))))
+    const pick = (name, cur) => h('select', { name }, rules.map(([v, l]) => h('option', { value: v, selected: (cur || 0) === v }, t(l))));
+    await dialog(t('Share {0}', book.name), others.length || groups.length ? [
+      groups.map(g => field(t('Everyone in {0}', g.name), pick('g' + g.id, data.shares.find(x => x.group_id === g.id)?.rule))),
+      others.map(u => field(u.username, pick('u' + u.id, data.shares.find(x => x.user_id === u.id)?.rule)))]
       : h('p', { class: 'muted' }, t('There is nobody else to share with yet.')),
-    async f => api('PUT', `/address-books/${book.guid}/shares`, { shares: others.map(u => ({ user_id: u.id, rule: Number(f.get('u' + u.id)) })).filter(s => s.rule) })) && reload();
+    async f => api('PUT', `/address-books/${book.guid}/shares`, { shares: [
+      ...groups.map(g => ({ group_id: g.id, rule: Number(f.get('g' + g.id)) })), ...others.map(u => ({ user_id: u.id, rule: Number(f.get('u' + u.id)) }))].filter(x => x.rule) })) && reload();
   }
   async function pinServer() {
     const bare = data.peers.filter(p => !splitId(p.id).server), c = state.overview?.client || {};
@@ -388,8 +400,10 @@ async function booksView(main) {
   }
   const newBook = async () => {
     let guid;
-    await dialog(t('New address book'), [field(t('Name'), text('name', '', { required: true, autofocus: true })), field(t('Note'), text('note'))],
-      async f => { guid = (await api('POST', '/address-books', { name: f.get('name'), note: f.get('note') })).guid; }) && go('books', guid);
+    const owners = state.user.is_admin ? (await api('GET', '/users')).users.filter(u => !u.disabled) : [];
+    await dialog(t('New address book'), [field(t('Name'), text('name', '', { required: true, autofocus: true })), field(t('Note'), text('note')),
+      owners.length > 1 && field(t('Owner'), h('select', { name: 'owner' }, owners.map(u => h('option', { value: u.id, selected: u.id === state.user.id }, u.username))))],
+    async f => { guid = (await api('POST', '/address-books', { name: f.get('name'), note: f.get('note'), owner_id: Number(f.get('owner') || 0) })).guid; }) && go('books', guid);
   };
   const bookMenu = btn => menu(btn, [
     book.rule === 3 && !book.personal && { label: t('Rename'), run: async () => { await dialog(t('Rename'), [field(t('Name'), text('name', book.name, { required: true })), field(t('Note'), text('note', book.note)),
@@ -439,63 +453,105 @@ async function booksView(main) {
 }
 
 // ---------- devices ----------
+const dev = { q: '', sel: new Set() };
 async function devicesView(main) {
   const { devices } = await api('GET', '/devices');
-  const addToBook = async d => {
-    const { address_books: books } = await api('GET', '/address-books');
-    const mine = books.filter(b => b.rule >= 2);
-    await dialog(t('Add to address book'), [field(t('Address book'), h('select', { name: 'guid' }, mine.map(b => h('option', { value: b.guid }, b.personal ? t('My address book') : b.name)))),
-      field(t('Alias'), text('alias', d.hostname))],
-    f => api('PUT', `/address-books/${f.get('guid')}/peers`, { id: d.id, alias: f.get('alias').trim(), hostname: d.hostname, username: d.username, platform: platformOf(d.os) }), { save: t('Add') }) && toast(t('Added'));
+  const admin = state.user.is_admin;
+  for (const id of dev.sel) if (!devices.some(d => d.id === id)) dev.sel.delete(id);
+  // Add devices to a book the caller may edit; the tag list follows the chosen book.
+  const addToBook = async list => {
+    const { address_books: books } = await api('GET', '/address-books' + (admin ? '?all=1' : ''));
+    const mine = books.filter(b => b.rule >= 2), tagBox = h('div', { class: 'tagpick' });
+    const name = b => (b.personal ? (b.owner_id === state.user.id ? t('My address book') : b.owner) : b.name) + (b.owner_id !== state.user.id ? ' (' + b.owner + ')' : '');
+    const sel = h('select', { name: 'guid', onchange: () => loadTags() }, mine.map(b => h('option', { value: b.guid }, name(b))));
+    let current = { peers: [], tags: [] };
+    const loadTags = async () => {
+      current = await api('GET', '/address-books/' + sel.value);
+      tagBox.replaceChildren(...current.tags.map(tg => { const dot = h('i', { class: 'tagdot' }); dot.style.background = tagColor(tg); return h('label', null, h('input', { type: 'checkbox', name: 'tag', value: tg.name }), dot, tg.name); }));
+    };
+    await loadTags();
+    let added = 0, skipped = 0;
+    const one = list.length === 1 ? list[0] : null;
+    await dialog(one ? t('Add to address book') : t('Add {0} devices to an address book', list.length), [field(t('Address book'), sel),
+      one && field(t('Alias'), text('alias', one.hostname)), field(t('Tags'), tagBox), !one && h('p', { class: 'muted' }, t('Devices that are already in the book are skipped.'))],
+    async f => {
+      const have = new Set(current.peers.map(p => splitId(p.id).id));
+      for (const d of list) {
+        if (have.has(d.id)) { skipped++; continue; }
+        await api('PUT', `/address-books/${f.get('guid')}/peers`, { id: d.id, alias: one ? f.get('alias').trim() : d.hostname, hostname: d.hostname, username: d.username, platform: platformOf(d.os), tags: f.getAll('tag') });
+        added++;
+      }
+    }, { save: t('Add') }) && (toast(t('{0} added, {1} already there', added, skipped)), dev.sel.clear(), render());
   };
+  const patch = (d, body) => api('PATCH', '/devices/' + encodeURIComponent(d.id), body);
   const row = d => {
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
       { label: t('Connect'), run: () => { location.href = 'rustdesk://' + d.id; } },
       { label: t('Copy ID'), run: () => copy(d.id) },
-      { label: t('Add to address book'), run: () => addToBook(d) },
-      state.user.is_admin && { label: t('Set owner'), run: async () => {
+      { label: t('Add to address book'), run: () => addToBook([d]) },
+      admin && { label: t('Set owner'), run: async () => {
         const { users } = await api('GET', '/users');
         await dialog(t('Set owner'), [field(t('Owner'), h('select', { name: 'owner' }, h('option', { value: 0 }, t('Nobody')), users.map(u => h('option', { value: u.id, selected: u.id === d.user_id }, u.username))))],
-          f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { owner_id: Number(f.get('owner')) })) && render(); } },
-      state.user.is_admin && { label: t('Set group'), run: async () => { await dialog(t('Set group'), [field(t('Group'), text('group', d.group), t('Devices with the same group name are listed together in the RustDesk app.'))],
-        f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { group: f.get('group') })) && render(); } },
-      state.user.is_admin && { label: t('Note'), run: async () => { await dialog(t('Note'), [field(t('Note'), h('textarea', { name: 'note' }, d.note))], f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { note: f.get('note') })) && render(); } },
-      ...(state.user.is_admin ? d.conns.map(cid => ({ label: t('End session {0}', cid), danger: true, run: async () => {
+          f => patch(d, { owner_id: Number(f.get('owner')) })) && render(); } },
+      admin && { label: t('Set group'), run: async () => { await dialog(t('Set group'), [field(t('Group'), text('group', d.group), t('Devices with the same group name are listed together in the RustDesk app.'))],
+        f => patch(d, { group: f.get('group') })) && render(); } },
+      admin && { label: t('Note'), run: async () => { await dialog(t('Note'), [field(t('Note'), h('textarea', { name: 'note' }, d.note))], f => patch(d, { note: f.get('note') })) && render(); } },
+      ...(admin ? d.conns.map(cid => ({ label: t('End session {0}', cid), danger: true, run: async () => {
         await api('POST', '/devices/' + encodeURIComponent(d.id) + '/disconnect', { conn_id: cid }); toast(t('The device closes the session within a few seconds.')); } })) : []),
-      state.user.is_admin && '-',
-      state.user.is_admin && { label: t('Forget'), danger: true, run: async () => { if (await confirmBox(t('Forget {0}? It comes back when it reports again.', d.hostname || fmtId(d.id)), t('Forget'))) { await api('DELETE', '/devices/' + encodeURIComponent(d.id)); render(); } } },
+      admin && '-',
+      admin && { label: t('Forget'), danger: true, run: async () => { if (await confirmBox(t('Forget {0}? It comes back when it reports again.', d.hostname || fmtId(d.id)), t('Forget'))) { await api('DELETE', '/devices/' + encodeURIComponent(d.id)); render(); } } },
     ]) }, icon('more'));
-    const art = h('div', { class: 'peer-art' }, platformIcon(d.os)); art.style.cssText = `background:${peerColor(d.id, platformOf(d.os))};width:40px;height:40px;border-radius:6px;padding:0;flex:none`;
-    art.querySelector('svg').style.cssText = 'width:20px;height:20px';
-    return h('div', null, art,
+    const art = h('div', { class: 'peer-art mini' }, platformIcon(d.os)); art.style.background = peerColor(d.id, platformOf(d.os));
+    return h('div', { class: 'dev' }, h('input', { type: 'checkbox', 'aria-label': t('Select'), checked: dev.sel.has(d.id), onchange: e => { e.target.checked ? dev.sel.add(d.id) : dev.sel.delete(d.id); bar(); } }), art,
       h('div', { class: 'grow' }, h('div', { class: 'row' }, h('span', { class: 'dot ' + (d.online ? 'on' : '') }), h('b', { class: 'trunc' }, d.hostname || fmtId(d.id)), d.user && h('span', { class: 'chip blue' }, d.user),
-          d.group && h('span', { class: 'chip' }, d.group), d.conns.length > 0 && h('span', { class: 'chip blue' }, t('{0} active', d.conns.length))),
-        h('div', { class: 'sub trunc' }, [fmtId(d.id), d.username, d.os, d.version && 'v' + d.version].filter(Boolean).join(', ')),
-        d.note && h('div', { class: 'sub trunc' }, d.note)),
+        d.group && h('span', { class: 'chip' }, d.group), d.conns.length > 0 && h('span', { class: 'chip blue' }, t('{0} active', d.conns.length))),
+      h('div', { class: 'sub trunc' }, [fmtId(d.id), d.username, d.os, d.version && 'v' + d.version].filter(Boolean).join(', ')),
+      d.note && h('div', { class: 'sub trunc' }, d.note)),
       h('div', { class: 'sub wide-only' }, d.online ? t('Online') : t('Last seen {0}', ago(d.last_seen))), more);
   };
+  const list = h('div', { class: 'panel list' }), tools = h('div', { class: 'row batch' });
+  const bar = () => {
+    const picked = devices.filter(d => dev.sel.has(d.id));
+    tools.replaceChildren(...(picked.length ? [h('span', { class: 'muted' }, t('{0} selected', picked.length)),
+      h('button', { class: 'btn small primary', onclick: () => addToBook(picked) }, t('Add to address book')),
+      admin && h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox(t('Forget {0} devices? They come back when they report again.', picked.length), t('Forget'))) {
+        for (const d of picked) await api('DELETE', '/devices/' + encodeURIComponent(d.id)); dev.sel.clear(); render(); } } }, t('Forget')),
+      h('button', { class: 'btn small', onclick: () => { dev.sel.clear(); paint(); } }, t('Clear'))].filter(Boolean) : []));
+  };
+  const paint = () => {
+    const q = dev.q.trim().toLowerCase();
+    const shown = devices.filter(d => !q || [d.id, d.hostname, d.username, d.os, d.user, d.group, d.note, d.last_ip].some(v => String(v || '').toLowerCase().includes(q)));
+    list.replaceChildren(...(shown.length ? shown.map(row) : [h('div', { class: 'empty' }, h('span', null, devices.length ? h('b', null, t('Nothing matches the filter'))
+      : [h('b', null, t('No device has reported to this server yet')), t('Devices appear here once RustDesk on them uses this server as API server.')]))]));
+    bar();
+  };
   const on = devices.filter(d => d.online).length;
-  main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Devices')), h('span', { class: 'muted' }, `${devices.length} ${t('devices')}, ${on} ${t('online')}`)),
-    h('div', { class: 'panel list' }, devices.length ? devices.map(row) : h('div', { class: 'empty', style: null }, h('span', null, h('b', null, t('No device has reported to this server yet')), t('Devices appear here once RustDesk on them uses this server as API server.'))))));
-  for (const el of main.querySelectorAll('.list > .empty')) el.style.display = 'block';
+  main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Devices')), h('span', { class: 'muted' }, `${devices.length} ${t('devices')}, ${on} ${t('online')}`),
+    h('input', { class: 'search', type: 'search', placeholder: t('Search'), 'aria-label': t('Search'), value: dev.q, oninput: e => { dev.q = e.target.value; paint(); } })), tools, list));
+  paint();
 }
 const platformOf = os => { const s = (os || '').toLowerCase(); return s.includes('win') ? 'Windows' : s.includes('mac') ? 'Mac OS' : s.includes('android') ? 'Android' : s.includes('linux') || s.includes('ubuntu') || s.includes('debian') ? 'Linux' : ''; };
 
 // ---------- users ----------
 async function usersView(main) {
-  const { users } = await api('GET', '/users');
+  const [{ users }, { groups }] = await Promise.all([api('GET', '/users'), api('GET', '/groups')]);
+  const editGroup = async g => { await dialog(g ? t('Edit group') : t('New group'), [field(t('Name'), text('name', g?.name || '', { required: true, autofocus: !g })),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'shared', checked: g?.shared }), t('Members see each other\'s devices in the RustDesk app')),
+    h('p', { class: 'muted hint' }, t('In a regular group everybody sees only their own devices.'))],
+  f => api('PUT', '/groups/' + (g ? g.id : 'new'), { name: f.get('name'), shared: f.has('shared') })) && render(); };
   const edit = async u => {
     await dialog(u ? t('Edit user') : t('New user'), [
       !u && field(t('Username'), text('username', '', { required: true, autofocus: true })),
       field(t('E-mail'), h('input', { type: 'email', name: 'email', value: u?.email || '' })),
       field(t('Display name'), text('display_name', u?.display_name || '')),
       !u && field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8 }), t('Leave empty for an account that signs in with a provider only.')),
+      u && groups.length > 0 && field(t('Group'), h('select', { name: 'group_id' }, h('option', { value: 0 }, t('No group')), groups.map(g => h('option', { value: g.id, selected: g.id === u.group_id }, g.name)))),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'is_admin', checked: u?.is_admin }), t('Administrator')),
       u && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'disabled', checked: u.disabled }), t('Disabled')),
       u?.has_totp && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'reset_totp' }), t('Reset two-step sign-in')),
     ], f => {
       const body = { email: f.get('email'), display_name: f.get('display_name'), is_admin: f.has('is_admin') };
-      return u ? api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled'), reset_totp: f.has('reset_totp') }) : api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password') });
+      return u ? api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled'), reset_totp: f.has('reset_totp'), ...(f.has('group_id') ? { group_id: Number(f.get('group_id')) } : {}) }) : api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password') });
     }) && render();
   };
   const setPw = u => dialog(t('Set password'), [field(t('New password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.'))],
@@ -507,12 +563,18 @@ async function usersView(main) {
         if (await confirmBox(t('Delete the user {0}? Their address books are deleted too.', u.username), t('Delete'))) { try { await api('DELETE', '/users/' + u.id); } catch (ex) { toast(ex.message); } render(); }
       } }]) }, icon('more'));
     return h('div', null, h('div', { class: 'avatar' }, u.username[0].toUpperCase()),
-      h('div', { class: 'grow' }, h('div', { class: 'row' }, h('b', { class: 'trunc' }, u.username), u.is_admin && h('span', { class: 'chip blue' }, t('Administrator')), u.disabled && h('span', { class: 'chip' }, t('Disabled'))),
+      h('div', { class: 'grow' }, h('div', { class: 'row' }, h('b', { class: 'trunc' }, u.username), u.is_admin && h('span', { class: 'chip blue' }, t('Administrator')), u.disabled && h('span', { class: 'chip' }, t('Disabled')),
+        u.group_id > 0 && h('span', { class: 'chip' }, groups.find(g => g.id === u.group_id)?.name)),
         h('div', { class: 'sub trunc' }, [u.display_name, u.email].filter(Boolean).join(', '))),
       h('div', { class: 'row wide-only' }, u.providers.map(p => h('span', { class: 'chip' }, p)), u.has_totp && h('span', { class: 'chip blue' }, t('Two-step')), !u.has_password && h('span', { class: 'chip' }, t('No password'))), more);
   };
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Users')), h('button', { class: 'btn primary', onclick: () => edit() }, t('New user'))),
-    h('div', { class: 'panel list' }, users.map(row))));
+    h('div', { class: 'panel list' }, users.map(row)),
+    h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Groups')), h('button', { class: 'btn small', onclick: () => editGroup() }, t('New group'))),
+      h('div', { class: 'list' }, groups.length ? groups.map(g => h('div', null, h('div', { class: 'grow' }, h('div', { class: 'row' }, h('b', null, g.name), g.shared && h('span', { class: 'chip blue' }, t('Shared group'))), h('div', { class: 'sub' }, t('{0} members', g.members))),
+        h('button', { class: 'btn small', onclick: () => editGroup(g) }, t('Edit')),
+        h('button', { class: 'btn small danger', onclick: async () => { if (await confirmBox(t('Delete the group {0}? Its members stay, without a group.', g.name), t('Delete'))) { await api('DELETE', '/groups/' + g.id); render(); } } }, t('Delete'))))
+        : h('div', { class: 'muted' }, t('No groups yet'))))));
 }
 
 // ---------- sessions ----------
@@ -596,19 +658,31 @@ async function settingsView(main) {
       field(t('Public address of this console'), h('input', { type: 'url', name: 'public_url', value: cfg.public_url, placeholder: location.origin }), t('Shown to users and used to build the client configuration.')),
       h('button', { class: 'btn primary', type: 'submit' }, t('Save')));
     panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Server'))), form));
-    const dev = h('form', { class: 'pad', onsubmit: async e => {
+    const devForm = h('form', { class: 'pad', onsubmit: async e => {
       e.preventDefault();
-      const f = new FormData(dev), strategy = {};
+      const f = new FormData(devForm), strategy = {};
       for (const line of f.get('strategy').split('\n')) { const i = line.indexOf('='); if (i > 0) strategy[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
-      try { await api('PUT', '/settings', { allow_presets: f.has('allow_presets'), log_days: f.get('log_days'), strategy }); toast(t('Saved')); } catch (ex) { toast(ex.message); }
+      try { await api('PUT', '/settings', { allow_presets: f.has('allow_presets'), log_days: f.get('log_days'), idle_days: f.get('idle_days'), strategy }); toast(t('Saved')); } catch (ex) { toast(ex.message); }
     } },
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'allow_presets', checked: cfg.allow_presets }), t('Let installations enrol themselves')),
       h('p', { class: 'muted hint' }, t('A custom RustDesk client can name its owner, group and address book (preset options). Leave off unless you deploy such clients.')),
       field(t('Keep logs for (days)'), text('log_days', cfg.log_days, { inputmode: 'numeric' }), t('Empty keeps them forever.')),
+      field(t('Sign out apps not used for (days)'), text('idle_days', cfg.idle_days, { inputmode: 'numeric' }), t('Empty never signs them out.')),
       field(t('Options sent to every device'), h('textarea', { name: 'strategy', class: 'mono', rows: 4, placeholder: 'enable-lan-discovery=N' }, Object.entries(cfg.strategy).map(([k, v]) => k + '=' + v).join('\n')),
         t('One option per line as name=value. An empty value removes the option on the devices.')),
       h('button', { class: 'btn primary', type: 'submit' }, t('Save')));
-    panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Devices and logs'))), dev));
+    panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Devices and logs'))), devForm));
+    const outBox = h('pre', { class: 'mono cmd-out hide' });
+    const cmd = h('form', { class: 'pad', onsubmit: async e => {
+      e.preventDefault();
+      const f = new FormData(cmd);
+      outBox.classList.remove('hide');
+      try { outBox.textContent = (await api('POST', '/server-cmd', { target: f.get('target'), cmd: f.get('cmd') })).output || '(no output)'; } catch (ex) { outBox.textContent = ex.message; }
+    } }, h('p', { class: 'muted' }, t('Type h to list the commands the server accepts. Works when hbbs and hbbr run on this machine.')), h('br'),
+      h('div', { class: 'row cmd-row' }, h('select', { name: 'target', 'aria-label': t('Server') }, h('option', { value: 'hbbs' }, t('ID server (hbbs)')), h('option', { value: 'hbbr' }, t('Relay server (hbbr)'))),
+        h('input', { type: 'text', name: 'cmd', class: 'mono grow', placeholder: 'h', 'aria-label': t('Command'), required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' }),
+        h('button', { class: 'btn', type: 'submit' }, t('Run'))), outBox);
+    panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Server commands'))), cmd));
     const editProvider = async p => {
       await dialog(p ? p.name : t('Add provider'), [
         !p && field(t('Name'), text('name', 'google', { required: true, pattern: '[a-z0-9_-]+' })),

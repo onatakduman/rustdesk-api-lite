@@ -153,6 +153,39 @@ func Lejianwen(st *store.Store, path string) (string, error) {
 	}
 	say("users: %d found, %d created, %d already present", len(us), created, len(us)-created)
 
+	// User groups: type 2 is a shared group (members see each other's devices).
+	grows, err := rows(src, "SELECT * FROM groups ORDER BY id")
+	if err != nil {
+		return "", err
+	}
+	existing, err := st.Groups()
+	if err != nil {
+		return "", err
+	}
+	groupID := map[int64]int64{}
+	for _, r := range grows {
+		typ, _ := r["type"].(int64)
+		g := &store.Group{Name: str(r["name"]), Shared: typ == 2}
+		for _, e := range existing {
+			if strings.EqualFold(e.Name, g.Name) {
+				g.ID = e.ID
+			}
+		}
+		if err := st.SaveGroup(g); err != nil {
+			return "", fmt.Errorf("group %s: %w", g.Name, err)
+		}
+		groupID[r["id"].(int64)] = g.ID
+	}
+	for sid, uid := range userID {
+		if u, err := st.UserByID(uid); err == nil && u.GroupID == 0 && groupID[groupOf[sid]] != 0 {
+			u.GroupID = groupID[groupOf[sid]]
+			if err := st.UpdateUser(u); err != nil {
+				return "", err
+			}
+		}
+	}
+	say("user groups: %d", len(grows))
+
 	// External sign-in providers and the identities linked through them.
 	provs, err := rows(src, "SELECT * FROM oauths")
 	if err != nil {
@@ -330,7 +363,11 @@ func Lejianwen(st *store.Store, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	shares := map[string]map[int64]int{}
+	type target struct {
+		group bool
+		id    int64
+	}
+	shares := map[string]map[target]int{}
 	for _, r := range rules {
 		cid, owner := r["collection_id"].(int64), r["user_id"].(int64)
 		g := bookOf[fmt.Sprintf("%d/%d", owner, cid)]
@@ -340,29 +377,31 @@ func Lejianwen(st *store.Store, path string) (string, error) {
 		if g == "" || rule < 1 || rule > 3 {
 			continue
 		}
-		if shares[g] == nil {
-			shares[g] = map[int64]int{}
-		}
-		add := func(srcUser int64) {
-			if uid, ok := userID[srcUser]; ok && srcUser != owner && int(rule) > shares[g][uid] {
-				shares[g][uid] = int(rule)
-			}
-		}
+		var tg target
 		if typ == 2 {
-			for su, grp := range groupOf {
-				if grp == to {
-					add(su)
-				}
-			}
-		} else {
-			add(to)
+			tg = target{true, groupID[to]}
+		} else if to != owner {
+			tg = target{false, userID[to]}
+		}
+		if tg.id == 0 {
+			continue
+		}
+		if shares[g] == nil {
+			shares[g] = map[target]int{}
+		}
+		if int(rule) > shares[g][tg] {
+			shares[g][tg] = int(rule)
 		}
 	}
 	nshares := 0
 	for g, m := range shares {
 		var list []store.Share
-		for uid, rule := range m {
-			list = append(list, store.Share{UserID: uid, Rule: rule})
+		for tg, rule := range m {
+			if tg.group {
+				list = append(list, store.Share{GroupID: tg.id, Rule: rule})
+			} else {
+				list = append(list, store.Share{UserID: tg.id, Rule: rule})
+			}
 		}
 		if err := st.SetShares(g, list); err != nil {
 			return "", err

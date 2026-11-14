@@ -40,10 +40,13 @@ type Tag struct {
 	Color int64  `json:"color"`
 }
 
-// Share grants a user access to someone else's address book.
+// Share grants a user, or every member of a user group, access to someone
+// else's address book. Exactly one of UserID and GroupID is set.
 type Share struct {
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+	GroupID  int64  `json:"group_id"`
+	Group    string `json:"group"`
 	Rule     int    `json:"rule"`
 }
 
@@ -71,7 +74,9 @@ func (s *Store) PersonalAB(userID int64) (string, error) {
 
 const abSelect = `SELECT b.guid, b.owner_id, u.username, b.name, b.personal, b.note, b.created_at, b.default_password,
 	(SELECT COUNT(*) FROM ab_peers p WHERE p.ab_guid = b.guid),
-	CASE WHEN b.owner_id = ?1 THEN 3 ELSE COALESCE((SELECT rule FROM ab_shares sh WHERE sh.ab_guid = b.guid AND sh.user_id = ?1), 0) END
+	CASE WHEN b.owner_id = ?1 THEN 3 ELSE MAX(
+		COALESCE((SELECT rule FROM ab_shares sh WHERE sh.ab_guid = b.guid AND sh.user_id = ?1), 0),
+		COALESCE((SELECT gs.rule FROM ab_group_shares gs JOIN users me ON me.id = ?1 WHERE gs.ab_guid = b.guid AND gs.group_id = me.group_id), 0)) END
 	FROM address_books b JOIN users u ON u.id = b.owner_id`
 
 func scanAB(sc interface{ Scan(...any) error }) (*AddressBook, error) {
@@ -107,6 +112,7 @@ func (s *Store) ABsFor(userID int64) ([]*AddressBook, error) {
 		return nil, err
 	}
 	return s.queryABs(abSelect+` WHERE b.owner_id = ?1 OR EXISTS (SELECT 1 FROM ab_shares sh WHERE sh.ab_guid = b.guid AND sh.user_id = ?1)
+		OR EXISTS (SELECT 1 FROM ab_group_shares gs JOIN users me ON me.id = ?1 WHERE gs.ab_guid = b.guid AND gs.group_id = me.group_id)
 		ORDER BY b.personal DESC, (b.owner_id = ?1) DESC, b.name COLLATE NOCASE`, userID)
 }
 
@@ -435,10 +441,12 @@ func (s *Store) DeleteTags(guid string, names []string) error {
 	return tx.Commit()
 }
 
-// Shares lists who an address book is shared with.
+// Shares lists the users and groups an address book is shared with.
 func (s *Store) Shares(guid string) ([]Share, error) {
-	rows, err := s.db.Query(`SELECT sh.user_id, u.username, sh.rule FROM ab_shares sh JOIN users u ON u.id = sh.user_id
-		WHERE sh.ab_guid = ? ORDER BY u.username`, guid)
+	rows, err := s.db.Query(`SELECT sh.user_id, u.username, 0, '', sh.rule FROM ab_shares sh JOIN users u ON u.id = sh.user_id WHERE sh.ab_guid = ?1
+		UNION ALL
+		SELECT 0, '', gs.group_id, g.name, gs.rule FROM ab_group_shares gs JOIN user_groups g ON g.id = gs.group_id WHERE gs.ab_guid = ?1
+		ORDER BY 3, 2, 4`, guid)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +454,7 @@ func (s *Store) Shares(guid string) ([]Share, error) {
 	out := []Share{}
 	for rows.Next() {
 		var sh Share
-		if err := rows.Scan(&sh.UserID, &sh.Username, &sh.Rule); err != nil {
+		if err := rows.Scan(&sh.UserID, &sh.Username, &sh.GroupID, &sh.Group, &sh.Rule); err != nil {
 			return nil, err
 		}
 		out = append(out, sh)
@@ -472,11 +480,20 @@ func (s *Store) SetShares(guid string, shares []Share) error {
 	if _, err := tx.Exec("DELETE FROM ab_shares WHERE ab_guid = ?", guid); err != nil {
 		return err
 	}
+	if _, err := tx.Exec("DELETE FROM ab_group_shares WHERE ab_guid = ?", guid); err != nil {
+		return err
+	}
 	for _, sh := range shares {
-		if sh.UserID == owner || sh.Rule < RuleRead || sh.Rule > RuleFull {
+		if sh.Rule < RuleRead || sh.Rule > RuleFull {
 			continue
 		}
-		if _, err := tx.Exec("INSERT OR REPLACE INTO ab_shares(ab_guid, user_id, rule) VALUES(?, ?, ?)", guid, sh.UserID, sh.Rule); err != nil {
+		switch {
+		case sh.GroupID != 0:
+			_, err = tx.Exec("INSERT OR REPLACE INTO ab_group_shares(ab_guid, group_id, rule) VALUES(?, ?, ?)", guid, sh.GroupID, sh.Rule)
+		case sh.UserID != 0 && sh.UserID != owner:
+			_, err = tx.Exec("INSERT OR REPLACE INTO ab_shares(ab_guid, user_id, rule) VALUES(?, ?, ?)", guid, sh.UserID, sh.Rule)
+		}
+		if err != nil {
 			return err
 		}
 	}

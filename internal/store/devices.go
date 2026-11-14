@@ -127,8 +127,12 @@ func (s *Store) SetDeviceNote(id, note string) error {
 	return err
 }
 
-// DeleteDevice forgets a device (it reappears on its next heartbeat).
+// DeleteDevice forgets a device and signs out the RustDesk app on it (the
+// device reappears, without an owner, on its next heartbeat).
 func (s *Store) DeleteDevice(id string) error {
+	if _, err := s.db.Exec("DELETE FROM tokens WHERE device_id = ? AND kind = 'client'", id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM devices WHERE id = ?", id)
 	return err
 }

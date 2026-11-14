@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -523,5 +524,92 @@ func TestTwoStepSignIn(t *testing.T) {
 	}
 	if code, raw := post(map[string]string{"username": "ada", "password": "correct horse", "code": now}); code != 200 {
 		t.Fatalf("console refused the right code: %s", raw)
+	}
+}
+
+func TestSharedGroupVisibility(t *testing.T) {
+	h := newHarness(t)
+	ada, bob, cy := h.user("ada", false), h.user("bob", false), h.user("cy", false)
+	g := &store.Group{Name: "Support", Shared: true}
+	if err := h.st.SaveGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []*store.User{ada, bob} {
+		u.GroupID = g.ID
+		_ = h.st.UpdateUser(u)
+	}
+	for id, owner := range map[string]int64{"d1": ada.ID, "d2": bob.ID, "d3": cy.ID} {
+		h.call("POST", "/api/sysinfo", "", map[string]any{"id": id, "uuid": "u" + id, "hostname": "h" + id, "os": "linux / x"})
+		h.st.AssignDevice(id, owner)
+	}
+	ids := func(tok string) string {
+		_, _, v := h.call("GET", "/api/peers?current=1&pageSize=100", tok, nil)
+		out := []string{}
+		for _, p := range v.(map[string]any)["data"].([]any) {
+			if id := p.(map[string]any)["id"].(string); strings.HasPrefix(id, "d") {
+				out = append(out, id)
+			}
+		}
+		slices.Sort(out)
+		return strings.Join(out, ",")
+	}
+	if got := ids(h.login("ada")); got != "d1,d2" {
+		t.Fatalf("shared group member must see the group's devices, got %q", got)
+	}
+	if got := ids(h.login("cy")); got != "d3" {
+		t.Fatalf("outsider must see only their own, got %q", got)
+	}
+	g.Shared = false
+	_ = h.st.SaveGroup(g)
+	if got := ids(h.login("ada")); got != "d1" {
+		t.Fatalf("regular group must not share devices, got %q", got)
+	}
+}
+
+func TestGroupSharesAndIdleSessions(t *testing.T) {
+	h := newHarness(t)
+	ada, bob, cy := h.user("ada", false), h.user("bob", false), h.user("cy", false)
+	g := &store.Group{Name: "Field"}
+	_ = h.st.SaveGroup(g)
+	bob.GroupID, cy.GroupID = g.ID, g.ID
+	_ = h.st.UpdateUser(bob)
+	_ = h.st.UpdateUser(cy)
+	guid, _ := h.st.CreateAB(ada.ID, "Team", "")
+	// The group may read; bob personally may write: the higher right wins.
+	if err := h.st.SetShares(guid, []store.Share{{GroupID: g.ID, Rule: store.RuleRead}, {UserID: bob.ID, Rule: store.RuleReadWrite}}); err != nil {
+		t.Fatal(err)
+	}
+	rule := func(u *store.User) int { b, _ := h.st.AB(guid, u.ID); return b.Rule }
+	if rule(bob) != store.RuleReadWrite || rule(cy) != store.RuleRead || rule(ada) != store.RuleFull {
+		t.Fatalf("rules: bob %d cy %d ada %d", rule(bob), rule(cy), rule(ada))
+	}
+	if bs, _ := h.st.ABsFor(cy.ID); len(bs) != 2 {
+		t.Fatalf("a group share must list the book for members: %+v", bs)
+	}
+	if sh, _ := h.st.Shares(guid); len(sh) != 2 {
+		t.Fatalf("shares: %+v", sh)
+	}
+	_ = h.st.DeleteGroup(g.ID)
+	if rule(cy) != store.RuleNone || rule(bob) != store.RuleReadWrite {
+		t.Fatal("deleting a group must end its shares only")
+	}
+
+	// App sessions that stay unused longer than the configured time are signed out.
+	tok := h.login("ada")
+	_ = h.st.SetSetting("session_idle_days", "7")
+	if code, _, _ := h.call("POST", "/api/currentUser", tok, nil); code != 200 {
+		t.Fatal("fresh session refused")
+	}
+	if _, err := h.st.DB().Exec("UPDATE tokens SET last_used_at = last_used_at - 8*86400"); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := h.call("POST", "/api/currentUser", tok, nil); code != 401 {
+		t.Fatalf("idle session must be signed out, got %d", code)
+	}
+	// Forgetting a device signs out the app on it.
+	tok = h.login("ada")
+	_ = h.st.DeleteDevice("100200300")
+	if code, _, _ := h.call("POST", "/api/currentUser", tok, nil); code != 401 {
+		t.Fatalf("session of a forgotten device must end, got %d", code)
 	}
 }

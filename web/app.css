@@ -186,6 +186,15 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 .tagpick label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: #1d2129; color: #fff; padding: 9px 16px; border-radius: 8px; z-index: 50; max-width: calc(100vw - 32px); }
 .pager { margin-top: 12px; }
+.batch { margin-bottom: 10px; flex-wrap: wrap; min-height: 0; }
+.batch:empty { display: none; }
+.head .search { flex: 1; min-width: 150px; max-width: 280px; }
+.list > .dev > input[type=checkbox] { flex: none; width: 16px; height: 16px; margin: 0; }
+.peer-art.mini { width: 40px; height: 40px; border-radius: 6px; padding: 0; flex: none; }
+.peer-art.mini svg { width: 20px; height: 20px; }
+.list > .empty { display: block; }
+.cmd-row select { width: auto; flex: none; }
+.cmd-out { margin: 12px 0 0; padding: 10px 12px; background: var(--hover); border-radius: 6px; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
 .wrap { word-break: break-all; white-space: normal; }
 dialog p + p { margin-top: 10px; }
 .hint { margin: -6px 0 12px 24px; font-size: 13px; }

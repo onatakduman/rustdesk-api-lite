@@ -76,6 +76,11 @@ const (
 	keyStrategyAt = "strategy_modified_at"
 	// keyLogDays is how long logs are kept (0 or empty = forever).
 	keyLogDays = "log_retention_days"
+	// keyIdleDays signs out RustDesk apps that were not used for this many days (empty = never).
+	keyIdleDays = "session_idle_days"
+	// Where hbbs and hbbr take administration commands.
+	keyHbbsCmd = "hbbs_cmd_addr"
+	keyHbbrCmd = "hbbr_cmd_addr"
 )
 
 // publicURL is the externally visible base URL, without a trailing slash.

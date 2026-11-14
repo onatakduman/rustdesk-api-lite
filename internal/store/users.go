@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -20,13 +21,14 @@ type User struct {
 	CreatedAt   int64  `json:"created_at"`
 	HasPassword bool   `json:"has_password"`
 	HasTOTP     bool   `json:"has_totp"`
+	GroupID     int64  `json:"group_id"`
 }
 
-const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> ''"
+const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> '', group_id"
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
-	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP)
+	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP, &u.GroupID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -139,8 +141,8 @@ func (s *Store) CountAdmins() int {
 
 // UpdateUser saves the editable profile fields.
 func (s *Store) UpdateUser(u *User) error {
-	_, err := s.db.Exec(`UPDATE users SET email = ?, display_name = ?, is_admin = ?, disabled = ?, note = ? WHERE id = ?`,
-		u.Email, u.DisplayName, u.IsAdmin, u.Disabled, u.Note, u.ID)
+	_, err := s.db.Exec(`UPDATE users SET email = ?, display_name = ?, is_admin = ?, disabled = ?, note = ?, group_id = ? WHERE id = ?`,
+		u.Email, u.DisplayName, u.IsAdmin, u.Disabled, u.Note, u.GroupID, u.ID)
 	if err == nil && u.Disabled {
 		_, err = s.db.Exec("DELETE FROM tokens WHERE user_id = ?", u.ID)
 	}
@@ -250,7 +252,14 @@ func (s *Store) UserByToken(plain string) (*User, *Token, error) {
 		return nil, nil, err
 	}
 	n := now()
-	if t.ExpiresAt > 0 && t.ExpiresAt < n {
+	idle := int64(0)
+	if t.Kind == "client" {
+		// Apps that have not talked to the server for the configured time are signed out.
+		if days, _ := strconv.ParseInt(s.Setting("session_idle_days"), 10, 64); days > 0 {
+			idle = days * 86400
+		}
+	}
+	if (t.ExpiresAt > 0 && t.ExpiresAt < n) || (idle > 0 && n-t.LastUsedAt > idle) {
 		_, _ = s.db.Exec("DELETE FROM tokens WHERE hash = ?", h)
 		return nil, nil, ErrNotFound
 	}

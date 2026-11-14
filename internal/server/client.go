@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -587,18 +588,15 @@ func (s *Server) handleABLegacyPost(c *clientCtx) {
 
 func (s *Server) handleGroupUsers(c *clientCtx) {
 	list := []map[string]any{}
-	if c.user.IsAdmin {
-		us, err := s.st.ListUsers()
-		if c.err(err) {
-			return
+	us, err := s.st.ListUsers()
+	if c.err(err) {
+		return
+	}
+	visible := s.st.VisibleUsers(c.user)
+	for _, u := range us {
+		if !u.Disabled && (visible == nil || slices.Contains(visible, u.ID)) {
+			list = append(list, s.userPayload(u))
 		}
-		for _, u := range us {
-			if !u.Disabled {
-				list = append(list, s.userPayload(u))
-			}
-		}
-	} else {
-		list = append(list, s.userPayload(c.user))
 	}
 	limit, offset := paging(c.r)
 	page := []map[string]any{}
@@ -609,11 +607,7 @@ func (s *Server) handleGroupUsers(c *clientCtx) {
 }
 
 func (s *Server) handleGroupPeers(c *clientCtx) {
-	scope := c.user.ID
-	if c.user.IsAdmin {
-		scope = 0
-	}
-	ds, err := s.st.Devices(scope)
+	ds, err := s.st.DevicesFor(s.st.VisibleUsers(c.user))
 	if c.err(err) {
 		return
 	}

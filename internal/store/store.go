@@ -200,6 +200,24 @@ CREATE TABLE alarms (
   at        INTEGER NOT NULL
 );
 `,
+	// 3: user groups
+	`
+CREATE TABLE user_groups (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  shared INTEGER NOT NULL DEFAULT 0
+);
+ALTER TABLE users ADD COLUMN group_id INTEGER NOT NULL DEFAULT 0;
+`,
+	// 4: address books shared with a whole user group
+	`
+CREATE TABLE ab_group_shares (
+  ab_guid  TEXT NOT NULL REFERENCES address_books(guid) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+  rule     INTEGER NOT NULL,
+  PRIMARY KEY (ab_guid, group_id)
+);
+`,
 }
 
 func (s *Store) migrate() error {

@@ -18,11 +18,11 @@ Environment=RDL_DB=/var/lib/rustdesk-api-lite/rustdesk-api-lite.db
 Environment=RDL_LISTEN=127.0.0.1:21114
 # Set when a reverse proxy (Caddy, nginx) sits in front and adds X-Forwarded-*.
 Environment=RDL_TRUST_PROXY=1
-# Optional first-start values; afterwards they are edited in the console.
-#Environment=RDL_PUBLIC_URL=https://rustdesk.example.com
-#Environment=RDL_ID_SERVER=rustdesk.example.com
-#Environment=RDL_RELAY_SERVER=rustdesk.example.com
-#Environment=RDL_KEY=<public key of hbbs, the content of id_ed25519.pub>
+# Local settings go into this file (NAME=value lines); it wins over the lines above.
+# RDL_LISTEN moves the port. RDL_PUBLIC_URL, RDL_ID_SERVER, RDL_RELAY_SERVER and
+# RDL_KEY (the content of hbbs's id_ed25519.pub) fill the settings on the first
+# start; afterwards they are changed in the console or with `rustdesk-api-lite config set`.
+EnvironmentFile=-/etc/rustdesk-api-lite.env
 User=rustdesk-api-lite
 StateDirectory=rustdesk-api-lite
 StateDirectoryMode=0700

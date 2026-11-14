@@ -37,6 +37,9 @@ Usage:
   rustdesk-api-lite token add <user> <name>   create an API token for an account (printed once)
   rustdesk-api-lite share <book> <user> <view|edit|full|none>
                                               share an address book with an account
+  rustdesk-api-lite config                    show the server settings and the string that
+                                              configures a RustDesk app for this server
+  rustdesk-api-lite config set <name> <value> name: public-url, id-server, relay-server, key
   rustdesk-api-lite import-lejianwen <file>   import users, address books and devices from a
                                               lejianwen/rustdesk-api SQLite database
   rustdesk-api-lite version
@@ -104,6 +107,8 @@ func main() {
 		tokenCmd(open(), pos)
 	case "share":
 		shareCmd(open(), pos)
+	case "config":
+		configCmd(open(), pos)
 	case "import-lejianwen":
 		if len(pos) != 1 {
 			log.Fatal("usage: rustdesk-api-lite import-lejianwen <rustdeskapi.db>")
@@ -224,6 +229,37 @@ func shareCmd(st *store.Store, pos []string) {
 		return
 	}
 	fmt.Printf("%s: %s now has %s access\n", pos[0], u.Username, strings.ToLower(pos[2]))
+}
+
+// The settings a RustDesk app needs to use this server, by their command-line names.
+var configNames = []struct{ name, key string }{
+	{"public-url", "public_url"}, {"id-server", "id_server"}, {"relay-server", "relay_server"}, {"key", "server_key"},
+}
+
+// configCmd shows or changes those settings without the console.
+func configCmd(st *store.Store, pos []string) {
+	defer st.Close()
+	switch {
+	case len(pos) == 0:
+		for _, c := range configNames {
+			fmt.Printf("%s=%s\n", c.name, st.Setting(c.key))
+		}
+		// One line that sets up an app: paste it into the app, or run `rustdesk --config <string>`.
+		fmt.Printf("client-config=%s\n", server.EncodeClientConfig(st.Setting("id_server"), st.Setting("relay_server"), st.Setting("public_url"), st.Setting("server_key")))
+	case len(pos) == 3 && pos[0] == "set":
+		for _, c := range configNames {
+			if c.name == pos[1] {
+				if err := st.SetSetting(c.key, strings.TrimSpace(pos[2])); err != nil {
+					log.Fatal(err)
+				}
+				fmt.Printf("%s=%s\n", c.name, strings.TrimSpace(pos[2]))
+				return
+			}
+		}
+		log.Fatalf("unknown setting %q; use public-url, id-server, relay-server or key", pos[1])
+	default:
+		log.Fatal("usage: rustdesk-api-lite config   |   config set <public-url|id-server|relay-server|key> <value>")
+	}
 }
 
 func readPassword() string {

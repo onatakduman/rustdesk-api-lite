@@ -14,8 +14,32 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make test
-      - name: Install with the script and check that the server answers
+      - name: Install, configure, upgrade and uninstall with the script
         run: |
+          set -euxo pipefail
           make linux
-          sudo RDL_BINARY=dist/rustdesk-api-lite-linux-amd64 sh install.sh
-          curl -fsS http://127.0.0.1:21114/console/api/bootstrap
+          run="sudo -u rustdesk-api-lite rustdesk-api-lite"
+          db="-db /var/lib/rustdesk-api-lite/rustdesk-api-lite.db"
+          sudo RDL_BINARY=dist/rustdesk-api-lite-linux-amd64 RDL_ID_SERVER=id.example.test RDL_KEY=abc+def= sh install.sh | tee first.txt
+          grep -qx 'status=installed' first.txt
+          grep -q '^admin_password=.' first.txt
+          curl -fsS http://127.0.0.1:21114/healthz | grep -q '"status":"ok"'
+          $run config $db | tee config.txt
+          grep -qx 'id-server=id.example.test' config.txt
+          grep -qx 'key=abc+def=' config.txt
+          $run config set public-url https://api.example.test $db
+          $run config $db | grep -q '^client-config=.'
+          sudo RDL_BINARY=dist/rustdesk-api-lite-linux-amd64 sh install.sh | tee second.txt
+          grep -qx 'status=upgraded' second.txt
+          if grep -q '^admin_password=' second.txt; then echo "an upgrade must not print a password"; exit 1; fi
+          sudo sh install.sh uninstall | grep -qx 'status=uninstalled'
+          if systemctl is-active --quiet rustdesk-api-lite; then echo "still running after uninstall"; exit 1; fi
+          sudo test -f /var/lib/rustdesk-api-lite/rustdesk-api-lite.db
+      - name: Build the Docker image and check that it answers
+        run: |
+          set -euxo pipefail
+          docker build -t rustdesk-api-lite --build-arg VERSION=ci .
+          docker run -d --name rdl -p 127.0.0.1:21114:21114 rustdesk-api-lite
+          for i in $(seq 20); do curl -fsS http://127.0.0.1:21114/healthz && break; sleep 1; done
+          curl -fsS http://127.0.0.1:21114/healthz | grep -q '"version":"ci"'
+          docker logs rdl 2>&1 | grep -q 'First start'

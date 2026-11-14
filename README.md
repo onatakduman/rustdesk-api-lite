@@ -1,7 +1,9 @@
+![RustDesk API Lite: accounts and address books for self-hosted RustDesk](docs/img/banner.png)
+
 # RustDesk API Lite
 
-[![Release](https://img.shields.io/github/v/release/onatakduman/rustdesk-api-lite)](https://github.com/onatakduman/rustdesk-api-lite/releases/latest)
 [![CI](https://github.com/onatakduman/rustdesk-api-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/onatakduman/rustdesk-api-lite/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/onatakduman/rustdesk-api-lite)](https://github.com/onatakduman/rustdesk-api-lite/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Accounts, address books and a web console for self-hosted
@@ -10,10 +12,8 @@ Accounts, address books and a web console for self-hosted
 address books that sync between your devices, a device list and a connection
 log, with a console that looks and works like the RustDesk app.
 
-One static binary, one SQLite file, about 15 MB of memory. No Docker, no
-Node, no external database.
-
-![The address book in the console](docs/img/address-book.png)
+One static binary, one SQLite file, about 15 MB of memory. No Node, no
+external database, Docker only if you want it.
 
 An independent project, not affiliated with or endorsed by RustDesk
 ([details](#license-and-trademarks)). The screenshots show made-up data.
@@ -58,15 +58,16 @@ An independent project, not affiliated with or endorsed by RustDesk
 - Users, groups, signed-in apps and browsers, API tokens for scripts
 - The administration commands of hbbs and hbbr (relay list, block lists,
   bandwidth limits, …) from the console when they run on the same machine
-- A command line for accounts, tokens and shares
-- Import from [lejianwen/rustdesk-api](https://github.com/lejianwen/rustdesk-api)
-  that keeps signed-in clients signed in
+- A command line for accounts, tokens, shares and settings
+- An install that asks no questions, for people, scripts and AI agents
 
 Not included: session recording, LDAP, e-mail verification codes, fixed-ID
 deployment (`rustdesk --deploy`, needs the rendezvous server's cooperation).
 `docs/client-api-contract.md` lists everything the client can call.
 
 ## Screenshots
+
+![The address book as tiles](docs/img/address-book.png)
 
 | | |
 |---|---|
@@ -85,9 +86,50 @@ curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/
 
 The [script](install.sh) downloads the latest release for your CPU (x86-64 or
 ARM64), checks its checksum, installs the binary to `/usr/local/bin`, creates
-a service user and starts the service on `127.0.0.1:21114`. Run it again to
-upgrade; the database and your service file are left alone. Set
-`RDL_VERSION=v0.1.0` to install a particular release.
+a service user and starts the service on `127.0.0.1:21114`. It asks nothing
+and prints the admin password of the first start. Run it again to upgrade; the
+database, your settings and your service file are left alone.
+
+### Unattended, for scripts and AI agents
+
+Give the server its settings up front and read the result from the last lines:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/install.sh | sudo \
+  RDL_PUBLIC_URL=https://rustdesk.example.com \
+  RDL_ID_SERVER=rustdesk.example.com \
+  RDL_RELAY_SERVER=rustdesk.example.com \
+  RDL_KEY="$(cat /var/lib/rustdesk/id_ed25519.pub)" \
+  sh
+```
+
+```
+status=installed
+version=v0.1.1
+url=http://127.0.0.1:21114
+health=http://127.0.0.1:21114/healthz
+service=rustdesk-api-lite
+settings=/etc/rustdesk-api-lite.env
+admin_user=admin
+admin_password=…
+```
+
+`status` is `installed`, `upgraded`, `uninstalled` or `failed`, and the exit
+code is non-zero on failure. `RDL_VERSION=v0.1.1` pins a release and
+`RDL_LISTEN` moves the port. [AGENTS.md](AGENTS.md) has the whole procedure
+for an agent, from picking the method to handing over the client configuration.
+
+### With Docker
+
+```sh
+docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.1
+docker run -d --name rustdesk-api-lite --restart unless-stopped \
+  -p 127.0.0.1:21114:21114 -v rustdesk-api-lite:/data rustdesk-api-lite
+docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
+```
+
+The image is built from the repository; none is published yet. The `RDL_*`
+settings below work as `-e` options.
 
 ### From a release archive
 
@@ -100,8 +142,6 @@ tar -xzf rustdesk-api-lite-linux-amd64.tar.gz
 ./rustdesk-api-lite-linux-amd64/rustdesk-api-lite serve
 ```
 
-The Linux archives also hold the systemd unit and the install script.
-
 ### From source
 
 ```sh
@@ -111,13 +151,16 @@ go build -o rustdesk-api-lite .
 
 ## First steps
 
-1. The first start creates the account `admin` and prints its password once
-   (with the service: `journalctl -u rustdesk-api-lite | grep 'First start'`).
+1. The first start creates the account `admin` and prints its password once.
+   The install script shows it; otherwise look in the log
+   (`journalctl -u rustdesk-api-lite | grep 'First start'`).
 2. Put a reverse proxy with HTTPS in front of the server (below).
-3. Sign in and enter your ID server, relay server and public key under Settings.
+3. Sign in and enter your ID server, relay server and public key under
+   Settings, unless the install already set them.
 4. In the RustDesk app set the API server (Settings → Network → ID/Relay
    server) to the public address, for example `https://rustdesk.example.com`,
-   or paste the client configuration the console offers to copy.
+   or import the client configuration that the console and
+   `rustdesk-api-lite config` show.
 
 ### Behind Caddy
 
@@ -127,8 +170,8 @@ rustdesk.example.com {
 }
 ```
 
-Run with `-trust-proxy` (or `RDL_TRUST_PROXY=1`, which the systemd unit sets)
-so the real client address is used for throttling and logs.
+Run with `-trust-proxy` (or `RDL_TRUST_PROXY=1`, which the systemd unit and
+the Docker image set) so the real client address is used for throttling and logs.
 
 ### Options
 
@@ -138,9 +181,11 @@ so the real client address is used for throttling and logs.
 | `-listen` | `RDL_LISTEN` | `127.0.0.1:21114` | listen address |
 | `-trust-proxy` | `RDL_TRUST_PROXY` | off | trust `X-Forwarded-*` |
 
-`RDL_PUBLIC_URL`, `RDL_ID_SERVER`, `RDL_RELAY_SERVER` and `RDL_KEY` seed the
-settings on the first start; later they are edited in the console. With the
-systemd unit the database is `/var/lib/rustdesk-api-lite/rustdesk-api-lite.db`.
+`RDL_PUBLIC_URL`, `RDL_ID_SERVER`, `RDL_RELAY_SERVER` and `RDL_KEY` fill the
+settings on the first start; later they are changed in the console or with
+`config set`. With the systemd unit the database is
+`/var/lib/rustdesk-api-lite/rustdesk-api-lite.db` and local settings live in
+`/etc/rustdesk-api-lite.env`. `GET /healthz` answers when the server is up.
 
 ### Command line
 
@@ -150,6 +195,8 @@ rustdesk-api-lite user passwd alice
 rustdesk-api-lite user list
 rustdesk-api-lite token add alice "nightly sync"   # an API token for scripts, printed once
 rustdesk-api-lite share "Field" alice edit        # view | edit | full | none
+rustdesk-api-lite config                           # settings and the client configuration string
+rustdesk-api-lite config set id-server rustdesk.example.com
 rustdesk-api-lite version
 ```
 
@@ -157,34 +204,17 @@ With the service installed, run these as the service user and against its
 database:
 
 ```sh
-sudo -u rustdesk-api-lite rustdesk-api-lite user list -db /var/lib/rustdesk-api-lite/rustdesk-api-lite.db
+sudo -u rustdesk-api-lite rustdesk-api-lite config -db /var/lib/rustdesk-api-lite/rustdesk-api-lite.db
 ```
 
 ### Uninstall
 
 ```sh
-sudo systemctl disable --now rustdesk-api-lite
-sudo rm /usr/local/bin/rustdesk-api-lite /etc/systemd/system/rustdesk-api-lite.service
-sudo userdel rustdesk-api-lite
+curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/install.sh | sudo sh -s -- uninstall
 ```
 
-The data stays in `/var/lib/rustdesk-api-lite` until you remove that folder.
-
-## Moving from lejianwen/rustdesk-api
-
-```
-rustdesk-api-lite import-lejianwen /path/to/rustdeskapi.db
-```
-
-Run it as the service user and against the service database (`-db …`) when
-the server is installed with the systemd unit; take a copy of the source
-database first if the old server is still running.
-
-The source database is opened read-only. The import can be repeated: accounts
-are matched by user name, imported address books are replaced with the source
-content, the connection log continues where the last run stopped. Register the
-redirect address shown under Settings → Sign-in providers at your provider; the
-path `/api/oidc/callback` is the same as before.
+The data stays in `/var/lib/rustdesk-api-lite` and the settings in
+`/etc/rustdesk-api-lite.env` until you remove them.
 
 ## Security notes
 
@@ -213,6 +243,19 @@ binary. There is no build step.
 Releases follow [semantic versioning](https://semver.org). Pushing a tag such
 as `v0.2.0` builds the archives and publishes the release with the matching
 section of [CHANGELOG.md](CHANGELOG.md) as its notes.
+
+## References
+
+Projects this one was built against or learned from:
+
+- [RustDesk](https://github.com/rustdesk/rustdesk), the app whose API this
+  server answers. `docs/client-api-contract.md` was written from its source.
+- [rustdesk-server](https://github.com/rustdesk/rustdesk-server), the ID and
+  relay servers (hbbs, hbbr) this runs next to; the online query and the
+  server commands speak their protocols.
+- [lejianwen/rustdesk-api](https://github.com/lejianwen/rustdesk-api), the
+  API server this project started as a replacement for. An installation of it
+  can be brought over: [docs/migrating-from-lejianwen.md](docs/migrating-from-lejianwen.md).
 
 ## License and trademarks
 

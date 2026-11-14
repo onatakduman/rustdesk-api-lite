@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -104,6 +105,24 @@ func TestLoginAndCurrentUser(t *testing.T) {
 	h.call("POST", "/api/logout", tok, map[string]string{"id": "100200300"})
 	if code, _, _ := h.call("POST", "/api/currentUser", tok, nil); code != 401 {
 		t.Fatalf("token should be gone after logout, got %d", code)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	h := newHarness(t)
+	if code, raw, v := h.call("GET", "/healthz", "", nil); code != 200 || v.(map[string]any)["status"] != "ok" {
+		t.Fatalf("healthz: %d %s", code, raw)
+	}
+	if got := EncodeClientConfig("", "r", "a", "k"); got != "" {
+		t.Fatalf("no ID server, no client configuration: %q", got)
+	}
+	// The app reads the string backwards as base64 of a JSON object.
+	enc := []rune(EncodeClientConfig("id.example", "relay.example", "https://api.example", "K="))
+	slices.Reverse(enc)
+	raw, err := base64.URLEncoding.DecodeString(string(enc))
+	var cfg map[string]string
+	if err != nil || json.Unmarshal(raw, &cfg) != nil || cfg["host"] != "id.example" || cfg["api"] != "https://api.example" || cfg["key"] != "K=" {
+		t.Fatalf("client configuration: %v %v", err, cfg)
 	}
 }
 

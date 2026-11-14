@@ -47,6 +47,10 @@ type Server struct {
 // New builds the application.
 func New(st *store.Store, cfg Config) *Server {
 	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}, online: newOnlineCache()}
+	// For monitors, install scripts and agents: answers once the server takes requests.
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": Version})
+	})
 	s.clientRoutes()
 	s.oidcRoutes()
 	s.consoleRoutes()
@@ -250,15 +254,23 @@ func (s *Server) clientConfig(r *http.Request) ClientConfig {
 		APIServer:   s.publicURL(r),
 		Key:         s.st.Setting(keyServerKey),
 	}
-	if c.IDServer != "" {
-		raw, _ := json.Marshal(map[string]string{"host": c.IDServer, "relay": c.RelayServer, "api": c.APIServer, "key": c.Key})
-		enc := []rune(base64.URLEncoding.EncodeToString(raw))
-		for i, j := 0, len(enc)-1; i < j; i, j = i+1, j-1 {
-			enc[i], enc[j] = enc[j], enc[i]
-		}
-		c.Encoded = string(enc)
-	}
+	c.Encoded = EncodeClientConfig(c.IDServer, c.RelayServer, c.APIServer, c.Key)
 	return c
+}
+
+// EncodeClientConfig builds the string the RustDesk app takes under "import
+// server config" (and `rustdesk --config`): the settings as JSON, base64,
+// reversed. It is empty without an ID server.
+func EncodeClientConfig(idServer, relayServer, apiServer, key string) string {
+	if idServer == "" {
+		return ""
+	}
+	raw, _ := json.Marshal(map[string]string{"host": idServer, "relay": relayServer, "api": apiServer, "key": key})
+	enc := []rune(base64.URLEncoding.EncodeToString(raw))
+	for i, j := 0, len(enc)-1; i < j; i, j = i+1, j-1 {
+		enc[i], enc[j] = enc[j], enc[i]
+	}
+	return string(enc)
 }
 
 // nonceSet remembers recently seen report nonces so that retried reports are

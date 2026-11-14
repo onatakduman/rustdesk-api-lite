@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.1
+
+Easier to install, for people, scripts and AI agents.
+
+- The install script asks nothing, takes the server settings from the environment
+  (`RDL_PUBLIC_URL`, `RDL_ID_SERVER`, `RDL_RELAY_SERVER`, `RDL_KEY`, `RDL_LISTEN`), waits until the
+  server answers and ends with `status=…`, `url=…`, `admin_password=…` lines; `uninstall` removes
+  the service and keeps the data
+- Local settings of the service live in `/etc/rustdesk-api-lite.env`
+- `GET /healthz` for monitors and scripts
+- `rustdesk-api-lite config` shows the settings and the client configuration string;
+  `config set` changes them without the console
+- A Dockerfile that builds straight from the repository
+- `AGENTS.md` with the install procedure for AI agents and the rules for working on the code
+- Date format and time zone are a per-browser choice in the console
+
 ## v0.1.0
 
 First release.

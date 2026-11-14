@@ -48,6 +48,10 @@ const TR = {
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
   'Language': 'Dil', 'devices': 'cihaz', 'online': 'çevrimiçi', 'users': 'kullanıcı', 'address book entries': 'adres defteri kaydı', 'Overview': 'Genel durum',
   'All address books': 'Tüm adres defterleri',
+  'Two-step sign-in': 'İki adımlı giriş', 'On': 'Açık', 'Off': 'Kapalı', 'Turn on': 'Aç', 'Turn off': 'Kapat', 'Code': 'Kod', 'Code from your authenticator app': 'Doğrulama uygulamandaki kod',
+  'Add this key to an authenticator app, then enter the code it shows.': 'Bu anahtarı bir doğrulama uygulamasına ekle, sonra gösterdiği kodu gir.', 'Open in authenticator app': 'Doğrulama uygulamasında aç',
+  'Besides your password, signing in will ask for a code from your phone. Sign-in through a provider is not affected.': 'Girişte parolana ek olarak telefonundaki kod sorulur. Sağlayıcıyla giriş bundan etkilenmez.',
+  'Two-step sign-in is on': 'İki adımlı giriş açık', 'Two-step sign-in is off': 'İki adımlı giriş kapalı', 'Reset two-step sign-in': 'İki adımlı girişi sıfırla', 'Two-step': 'İki adımlı',
   'Ways to sign in': 'Giriş yöntemleri', 'Linked': 'Bağlı', 'Link': 'Bağla', 'Unlink': 'Bağlantıyı kaldır', 'Not linked': 'Bağlı değil',
   'For GitHub use the issuer https://github.com.': 'GitHub için yayıncı olarak https://github.com yaz.',
   'API tokens': 'API token\'ları', 'New API token': 'Yeni API token\'ı', 'For scripts and for rustdesk --assign. The token is shown once.': 'Betikler ve rustdesk --assign için. Token yalnız bir kez gösterilir.',
@@ -162,7 +166,7 @@ async function api(method, path, body) {
   let data = {};
   try { data = await res.json(); } catch { /* empty body */ }
   if (res.status === 401 && state.user) { state.user = null; render(); }
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data });
   return data;
 }
 
@@ -251,15 +255,20 @@ async function afterLogin(user) {
 }
 function loginView() {
   const err = h('div', { class: 'err', role: 'alert' });
+  const code = field(t('Code from your authenticator app'), h('input', { type: 'text', name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 7 }));
+  code.classList.add('hide');
   const form = h('form', { onsubmit: async e => {
     e.preventDefault();
     const f = new FormData(form);
-    try { afterLogin((await api('POST', '/login', { username: f.get('username'), password: f.get('password') })).user); } catch (ex) { err.textContent = ex.message; }
+    try { afterLogin((await api('POST', '/login', { username: f.get('username'), password: f.get('password'), code: f.get('code') || '' })).user); } catch (ex) {
+      err.textContent = ex.message;
+      if (ex.data?.totp) { code.classList.remove('hide'); code.querySelector('input').focus(); }
+    }
   } },
     h('div', { class: 'brand' }, h('img', { src: '/icon.svg', alt: '' }), 'RustDesk API Lite'),
     field(t('Username'), h('input', { type: 'text', name: 'username', autocomplete: 'username', required: true, autofocus: true })),
     field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true })),
-    err, h('button', { class: 'btn primary', type: 'submit' }, t('Sign in')),
+    code, err, h('button', { class: 'btn primary', type: 'submit' }, t('Sign in')),
     state.providers.length ? h('div', { class: 'or' }, t('or')) : null,
     state.providers.map(p => h('a', { class: 'btn', style: null, href: '/oidc/login?provider=' + encodeURIComponent(p), role: 'button' }, t('Continue with {0}', p[0].toUpperCase() + p.slice(1)))));
   for (const a of form.querySelectorAll('a.btn')) { a.style.display = 'block'; a.style.textAlign = 'center'; a.style.marginTop = '8px'; }
@@ -483,9 +492,10 @@ async function usersView(main) {
       !u && field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8 }), t('Leave empty for an account that signs in with a provider only.')),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'is_admin', checked: u?.is_admin }), t('Administrator')),
       u && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'disabled', checked: u.disabled }), t('Disabled')),
+      u?.has_totp && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'reset_totp' }), t('Reset two-step sign-in')),
     ], f => {
       const body = { email: f.get('email'), display_name: f.get('display_name'), is_admin: f.has('is_admin') };
-      return u ? api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled') }) : api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password') });
+      return u ? api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled'), reset_totp: f.has('reset_totp') }) : api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password') });
     }) && render();
   };
   const setPw = u => dialog(t('Set password'), [field(t('New password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.'))],
@@ -499,7 +509,7 @@ async function usersView(main) {
     return h('div', null, h('div', { class: 'avatar' }, u.username[0].toUpperCase()),
       h('div', { class: 'grow' }, h('div', { class: 'row' }, h('b', { class: 'trunc' }, u.username), u.is_admin && h('span', { class: 'chip blue' }, t('Administrator')), u.disabled && h('span', { class: 'chip' }, t('Disabled'))),
         h('div', { class: 'sub trunc' }, [u.display_name, u.email].filter(Boolean).join(', '))),
-      h('div', { class: 'row wide-only' }, u.providers.map(p => h('span', { class: 'chip' }, p)), !u.has_password && h('span', { class: 'chip' }, t('No password'))), more);
+      h('div', { class: 'row wide-only' }, u.providers.map(p => h('span', { class: 'chip' }, p)), u.has_totp && h('span', { class: 'chip blue' }, t('Two-step')), !u.has_password && h('span', { class: 'chip' }, t('No password'))), more);
   };
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Users')), h('button', { class: 'btn primary', onclick: () => edit() }, t('New user'))),
     h('div', { class: 'panel list' }, users.map(row))));
@@ -624,6 +634,22 @@ async function settingsView(main) {
     field(t('New password'), h('input', { type: 'password', name: 'new', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.')),
     h('button', { class: 'btn', type: 'submit' }, t('Change password')));
   panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Your password'))), pw));
+  const twoStep = async () => {
+    if (state.user.has_totp) {
+      await dialog(t('Two-step sign-in'), [field(t('Code from your authenticator app'), text('code', '', { inputmode: 'numeric', required: true, autofocus: true }))],
+        f => api('POST', '/me/totp/off', { code: f.get('code') }), { save: t('Turn off'), danger: true }) && (state.user.has_totp = false, toast(t('Two-step sign-in is off')), render());
+      return;
+    }
+    const { secret, uri } = await api('POST', '/me/totp/new', {});
+    await dialog(t('Two-step sign-in'), [h('p', { class: 'muted' }, t('Add this key to an authenticator app, then enter the code it shows.')), h('br'),
+      h('div', { class: 'copybox' }, h('span', { class: 'mono grow wrap' }, secret.replace(/(.{4})/g, '$1 ').trim()), h('button', { class: 'btn small', type: 'button', onclick: () => copy(secret) }, t('Copy'))),
+      h('p', null, h('a', { href: uri }, t('Open in authenticator app'))), h('br'),
+      field(t('Code'), text('code', '', { inputmode: 'numeric', required: true, autocomplete: 'one-time-code' }))],
+    f => api('POST', '/me/totp', { secret, code: f.get('code') }), { save: t('Turn on') }) && (state.user.has_totp = true, toast(t('Two-step sign-in is on')), render());
+  };
+  if (state.user.has_password) panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Two-step sign-in')), h('span', { class: 'chip' + (state.user.has_totp ? ' blue' : '') }, state.user.has_totp ? t('On') : t('Off')),
+    h('button', { class: 'btn small', onclick: twoStep }, state.user.has_totp ? t('Turn off') : t('Turn on'))),
+  h('div', { class: 'pad muted' }, t('Besides your password, signing in will ask for a code from your phone. Sign-in through a provider is not affected.'))));
   if (state.providers.length) panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Ways to sign in'))),
     h('div', { class: 'list' }, state.providers.map(p => { const linked = (state.user.providers || []).includes(p);
       return h('div', null, h('div', { class: 'grow' }, h('b', null, p[0].toUpperCase() + p.slice(1)), h('div', { class: 'sub' }, linked ? t('Linked') : t('Not linked'))),

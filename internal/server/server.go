@@ -40,11 +40,12 @@ type Server struct {
 	oidc   *oidcCache
 	nonces *nonceSet
 	kicks  *kickList
+	tfa    *challenges
 }
 
 // New builds the application.
 func New(st *store.Store, cfg Config) *Server {
-	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}}
+	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}}
 	s.clientRoutes()
 	s.oidcRoutes()
 	s.consoleRoutes()

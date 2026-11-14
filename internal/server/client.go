@@ -161,10 +161,41 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ID         string     `json:"id"`
 		UUID       string     `json:"uuid"`
 		Type       string     `json:"type"`
+		Code       string     `json:"verificationCode"`
+		TFACode    string     `json:"tfaCode"`
+		Secret     string     `json:"secret"`
 		DeviceInfo deviceInfo `json:"deviceInfo"`
 	}
 	if err := readJSON(w, r, &in, bodySmall); err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if in.Type == "email_code" {
+		// Second step of a two-step sign-in: the code from the authenticator app.
+		entry := &store.LoginLog{Username: in.Username, Kind: "client", Method: "password + code", DeviceID: in.ID, DeviceName: in.DeviceInfo.Name, IP: s.clientIP(r)}
+		u, err := s.st.UserByID(s.tfa.user(in.Secret))
+		if err != nil || u.Disabled {
+			writeJSON(w, http.StatusOK, map[string]string{"error": "The sign-in expired, start again"})
+			return
+		}
+		code := in.TFACode
+		if code == "" {
+			code = in.Code
+		}
+		ok := totpValid(s.st.TOTPSecret(u.ID), code)
+		s.tfa.settle(in.Secret, ok)
+		entry.UserID, entry.Username, entry.OK = u.ID, u.Username, ok
+		s.st.AddLoginLog(entry)
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]string{"error": "Wrong code"})
+			return
+		}
+		body, err := s.authBody(r, u, in.ID, in.UUID, in.DeviceInfo)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, "Could not create a session")
+			return
+		}
+		writeJSON(w, http.StatusOK, body)
 		return
 	}
 	if in.Type != "" && in.Type != "account" {
@@ -177,6 +208,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.st.AddLoginLog(entry)
 		// 200 with an error field: the client shows the message as is.
 		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
+		return
+	}
+	if u.HasTOTP {
+		// The app shows its code dialog for this answer and repeats the call with type "email_code".
+		writeJSON(w, http.StatusOK, map[string]any{"type": "email_check", "tfa_type": "tfa_check", "secret": s.tfa.create(u.ID), "user": map[string]any{"name": u.Username}})
 		return
 	}
 	entry.UserID, entry.Username, entry.OK = u.ID, u.Username, true

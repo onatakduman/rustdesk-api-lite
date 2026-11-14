@@ -19,13 +19,14 @@ type User struct {
 	Note        string `json:"note"`
 	CreatedAt   int64  `json:"created_at"`
 	HasPassword bool   `json:"has_password"`
+	HasTOTP     bool   `json:"has_totp"`
 }
 
-const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> ''"
+const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> ''"
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
-	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword)
+	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -313,5 +314,18 @@ func (s *Store) ImportToken(plain string, t *Token) error {
 // UnlinkIdentity removes an external sign-in from a user.
 func (s *Store) UnlinkIdentity(provider string, userID int64) error {
 	_, err := s.db.Exec("DELETE FROM identities WHERE provider = ? AND user_id = ?", provider, userID)
+	return err
+}
+
+// TOTPSecret returns the user's authenticator secret ("" when two-step sign-in is off).
+func (s *Store) TOTPSecret(userID int64) string {
+	var v string
+	_ = s.db.QueryRow("SELECT totp_secret FROM users WHERE id = ?", userID).Scan(&v)
+	return v
+}
+
+// SetTOTP turns two-step sign-in on (secret) or off ("").
+func (s *Store) SetTOTP(userID int64, secret string) error {
+	_, err := s.db.Exec("UPDATE users SET totp_secret = ? WHERE id = ?", secret, userID)
 	return err
 }

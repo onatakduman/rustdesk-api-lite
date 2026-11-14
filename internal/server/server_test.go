@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/onatakduman/rustdesk-api-lite/internal/store"
 )
@@ -475,5 +476,52 @@ func TestEnrolment(t *testing.T) {
 	}
 	if _, raw, _ := h.call("POST", "/api/devices/cli", h.login("bob"), map[string]any{"id": "888", "uuid": "u8"}); !strings.Contains(raw, "Administrator") {
 		t.Fatalf("non-admin: %q", raw)
+	}
+}
+
+func TestTwoStepSignIn(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("ada", false)
+	secret := newTOTPSecret()
+	if code, ok := totpAt("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", time.Unix(59, 0)); !ok || code != "287082" {
+		t.Fatalf("RFC 6238 test vector: %s", code) // SHA-1, T=59 -> 94287082
+	}
+	_ = h.st.SetTOTP(u.ID, secret)
+	now, _ := totpAt(secret, time.Now())
+
+	// Step one: the password alone yields a challenge, not a token.
+	_, raw, v := h.call("POST", "/api/login", "", map[string]any{"username": "ada", "password": "correct horse", "id": "1", "uuid": "u", "type": "account"})
+	m := v.(map[string]any)
+	if m["type"] != "email_check" || m["tfa_type"] != "tfa_check" || m["access_token"] != nil || m["user"].(map[string]any)["name"] != "ada" {
+		t.Fatalf("challenge: %s", raw)
+	}
+	ch := m["secret"].(string)
+	step2 := func(code string) map[string]any {
+		_, _, v := h.call("POST", "/api/login", "", map[string]any{"username": "ada", "id": "1", "uuid": "u", "type": "email_code", "verificationCode": code, "tfaCode": code, "secret": ch})
+		return v.(map[string]any)
+	}
+	if step2("000000")["error"] == nil {
+		t.Fatal("wrong code accepted")
+	}
+	if m := step2(now); m["type"] != "access_token" || m["access_token"] == "" {
+		t.Fatalf("right code refused: %v", m)
+	}
+	if step2(now)["error"] == nil {
+		t.Fatal("a challenge must work once")
+	}
+
+	// Console: the code is asked for, then accepted.
+	post := func(body map[string]string) (int, string) {
+		code, raw, _ := h.call("POST", "/console/api/login", "", body, "X-RDL", "1")
+		return code, raw
+	}
+	if code, raw := post(map[string]string{"username": "ada", "password": "correct horse"}); code != 401 || !strings.Contains(raw, `"totp":true`) {
+		t.Fatalf("console must ask for the code: %d %s", code, raw)
+	}
+	if code, _ := post(map[string]string{"username": "ada", "password": "correct horse", "code": "111111"}); code != 401 {
+		t.Fatal("console accepted a wrong code")
+	}
+	if code, raw := post(map[string]string{"username": "ada", "password": "correct horse", "code": now}); code != 200 {
+		t.Fatalf("console refused the right code: %s", raw)
 	}
 }

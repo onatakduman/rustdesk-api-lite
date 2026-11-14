@@ -136,6 +136,9 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("GET "+p+"/overview", s.authed(false, s.cOverview))
 	m.HandleFunc("POST "+p+"/me/password", s.authed(false, s.cOwnPassword))
 	m.HandleFunc("DELETE "+p+"/me/identities/{provider}", s.authed(false, s.cOwnUnlink))
+	m.HandleFunc("POST "+p+"/me/totp/new", s.authed(false, s.cTOTPNew))
+	m.HandleFunc("POST "+p+"/me/totp", s.authed(false, s.cTOTPEnable))
+	m.HandleFunc("POST "+p+"/me/totp/off", s.authed(false, s.cTOTPDisable))
 
 	m.HandleFunc("GET "+p+"/devices", s.authed(false, s.cDevices))
 	m.HandleFunc("PATCH "+p+"/devices/{id}", s.authed(true, s.cDevicePatch))
@@ -221,12 +224,22 @@ func (s *Server) handleConsoleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "cross-site request refused")
 		return
 	}
-	var in struct{ Username, Password string }
+	var in struct{ Username, Password, Code string }
 	if err := readJSON(w, r, &in, bodySmall); err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	u, err := s.checkLogin(r, in.Username, in.Password)
+	if err == nil && u.HasTOTP {
+		if strings.TrimSpace(in.Code) == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "enter the code from your authenticator app", "totp": true})
+			return
+		}
+		if !totpValid(s.st.TOTPSecret(u.ID), in.Code) {
+			s.fails.fail("user:" + strings.ToLower(u.Username))
+			err = errors.New("that code is not right")
+		}
+	}
 	entry := &store.LoginLog{Username: in.Username, Kind: "console", Method: "password", DeviceName: "Web console", IP: s.clientIP(r)}
 	if err != nil {
 		s.st.AddLoginLog(entry)
@@ -638,6 +651,7 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 		DisplayName *string `json:"display_name"`
 		IsAdmin     *bool   `json:"is_admin"`
 		Disabled    *bool
+		ResetTOTP   bool `json:"reset_totp"`
 	}{}
 	if !c.body(&in) {
 		return
@@ -663,6 +677,9 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 		return
 	}
 	if c.err(s.st.UpdateUser(u)) {
+		return
+	}
+	if in.ResetTOTP && c.err(s.st.SetTOTP(u.ID, "")) {
 		return
 	}
 	c.done()

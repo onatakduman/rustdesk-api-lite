@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 )
 
@@ -25,13 +26,21 @@ type Device struct {
 	FirstSeen int64  `json:"first_seen"`
 	LastSeen  int64  `json:"last_seen"`
 	Online    bool   `json:"online"`
+	Group     string `json:"group"`
+	// Conns are the ids of the incoming sessions the device reported in its last heartbeat.
+	Conns []int64 `json:"conns"`
 }
 
 // Heartbeat records that a device is alive. It reports whether the device is
 // known with system information (false asks the client to send it).
-func (s *Store) Heartbeat(id, uuid, ip string) (known bool, err error) {
+func (s *Store) Heartbeat(id, uuid, ip string, conns []int64) (known bool, err error) {
+	connsJSON := ""
+	if len(conns) > 0 {
+		raw, _ := json.Marshal(conns)
+		connsJSON = string(raw)
+	}
 	n := now()
-	res, err := s.db.Exec("UPDATE devices SET last_seen = ?, last_ip = ? WHERE id = ?", n, ip, id)
+	res, err := s.db.Exec("UPDATE devices SET last_seen = ?, last_ip = ?, conns = ? WHERE id = ?", n, ip, connsJSON, id)
 	if err != nil {
 		return false, err
 	}
@@ -70,16 +79,20 @@ func (s *Store) AssignDevice(id string, userID int64) {
 }
 
 const deviceCols = `d.id, d.uuid, d.hostname, d.username, d.os, d.cpu, d.memory, d.version, COALESCE(d.user_id, 0), COALESCE(u.username, ''),
-	d.note, d.last_ip, d.first_seen, d.last_seen`
+	d.note, d.last_ip, d.first_seen, d.last_seen, d.group_name, d.conns`
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
-	d := &Device{}
-	err := sc.Scan(&d.ID, &d.UUID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory, &d.Version, &d.UserID, &d.User, &d.Note, &d.LastIP, &d.FirstSeen, &d.LastSeen)
+	d := &Device{Conns: []int64{}}
+	var conns string
+	err := sc.Scan(&d.ID, &d.UUID, &d.Hostname, &d.Username, &d.OS, &d.CPU, &d.Memory, &d.Version, &d.UserID, &d.User, &d.Note, &d.LastIP, &d.FirstSeen, &d.LastSeen, &d.Group, &conns)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err == nil {
 		d.Online = now()-d.LastSeen <= OnlineWindow
+		if d.Online && conns != "" {
+			_ = json.Unmarshal([]byte(conns), &d.Conns)
+		}
 	}
 	return d, err
 }
@@ -123,6 +136,7 @@ func (s *Store) DeleteDevice(id string) error {
 // ConnAudit is one remote session into a device.
 type ConnAudit struct {
 	ID        int64  `json:"id"`
+	Note      string `json:"note"`
 	DeviceID  string `json:"device_id"`
 	Device    string `json:"device"`
 	ConnID    int64  `json:"conn_id"`
@@ -167,7 +181,7 @@ func (s *Store) ConnClosed(deviceID string, connID int64) error {
 func (s *Store) ConnAudits(limit, offset int) ([]*ConnAudit, int, error) {
 	var total int
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM audit_conn").Scan(&total)
-	rows, err := s.db.Query(`SELECT a.rowid_, a.device_id, COALESCE(d.hostname, ''), a.conn_id, a.session_id, a.peer_id, a.peer_name, a.ip, a.conn_type, a.started_at, a.ended_at
+	rows, err := s.db.Query(`SELECT a.rowid_, a.device_id, COALESCE(d.hostname, ''), a.conn_id, a.session_id, a.peer_id, a.peer_name, a.ip, a.conn_type, a.started_at, a.ended_at, a.note
 		FROM audit_conn a LEFT JOIN devices d ON d.id = a.device_id ORDER BY a.rowid_ DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -176,7 +190,7 @@ func (s *Store) ConnAudits(limit, offset int) ([]*ConnAudit, int, error) {
 	out := []*ConnAudit{}
 	for rows.Next() {
 		a := &ConnAudit{}
-		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Device, &a.ConnID, &a.SessionID, &a.PeerID, &a.PeerName, &a.IP, &a.Type, &a.StartedAt, &a.EndedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Device, &a.ConnID, &a.SessionID, &a.PeerID, &a.PeerName, &a.IP, &a.Type, &a.StartedAt, &a.EndedAt, &a.Note); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, a)

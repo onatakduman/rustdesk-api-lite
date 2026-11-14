@@ -1,12 +1,14 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/onatakduman/rustdesk-api-lite/internal/store"
 )
@@ -136,6 +138,7 @@ func (s *Server) consoleRoutes() {
 
 	m.HandleFunc("GET "+p+"/devices", s.authed(false, s.cDevices))
 	m.HandleFunc("PATCH "+p+"/devices/{id}", s.authed(true, s.cDevicePatch))
+	m.HandleFunc("POST "+p+"/devices/{id}/disconnect", s.authed(true, s.cDeviceDisconnect))
 	m.HandleFunc("DELETE "+p+"/devices/{id}", s.authed(true, s.cDeviceDelete))
 
 	m.HandleFunc("GET "+p+"/address-books", s.authed(false, s.cBooks))
@@ -157,9 +160,12 @@ func (s *Server) consoleRoutes() {
 
 	m.HandleFunc("GET "+p+"/sessions", s.authed(false, s.cSessions))
 	m.HandleFunc("DELETE "+p+"/sessions/{id}", s.authed(false, s.cSessionDelete))
+	m.HandleFunc("POST "+p+"/tokens", s.authed(false, s.cTokenCreate))
 
 	m.HandleFunc("GET "+p+"/logs/connections", s.authed(true, s.cLogConns))
 	m.HandleFunc("GET "+p+"/logs/files", s.authed(true, s.cLogFiles))
+	m.HandleFunc("GET "+p+"/logs/logins", s.authed(false, s.cLogLogins))
+	m.HandleFunc("GET "+p+"/logs/alarms", s.authed(true, s.cLogAlarms))
 
 	m.HandleFunc("GET "+p+"/settings", s.authed(true, s.cSettings))
 	m.HandleFunc("PUT "+p+"/settings", s.authed(true, s.cSettingsPut))
@@ -220,10 +226,14 @@ func (s *Server) handleConsoleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.checkLogin(r, in.Username, in.Password)
+	entry := &store.LoginLog{Username: in.Username, Kind: "console", Method: "password", DeviceName: "Web console", IP: s.clientIP(r)}
 	if err != nil {
+		s.st.AddLoginLog(entry)
 		fail(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	entry.UserID, entry.Username, entry.OK = u.ID, u.Username, true
+	s.st.AddLoginLog(entry)
 	if err := s.newConsoleSession(w, r, u); err != nil {
 		fail(w, http.StatusInternalServerError, "could not create session")
 		return
@@ -283,13 +293,49 @@ func (s *Server) cDevices(c *consoleCtx) {
 }
 
 func (s *Server) cDevicePatch(c *consoleCtx) {
-	var in struct{ Note string }
+	in := struct {
+		Note, Group *string
+		OwnerID     *int64 `json:"owner_id"`
+	}{}
 	if !c.body(&in) {
 		return
 	}
-	if c.err(s.st.SetDeviceNote(c.r.PathValue("id"), in.Note)) {
+	id := c.r.PathValue("id")
+	if _, err := s.st.Device(id); c.err(err) {
 		return
 	}
+	if in.Note != nil && c.err(s.st.SetDeviceNote(id, *in.Note)) {
+		return
+	}
+	if in.Group != nil && c.err(s.st.SetDeviceGroup(id, strings.TrimSpace(*in.Group))) {
+		return
+	}
+	if in.OwnerID != nil {
+		if *in.OwnerID != 0 {
+			if _, err := s.st.UserByID(*in.OwnerID); c.err(err) {
+				return
+			}
+		}
+		if c.err(s.st.SetDeviceOwner(id, *in.OwnerID)) {
+			return
+		}
+	}
+	c.done()
+}
+
+// cDeviceDisconnect asks a device to close one of its incoming sessions.
+func (s *Server) cDeviceDisconnect(c *consoleCtx) {
+	var in struct {
+		ConnID int64 `json:"conn_id"`
+	}
+	if !c.body(&in) {
+		return
+	}
+	d, err := s.st.Device(c.r.PathValue("id"))
+	if c.err(err) {
+		return
+	}
+	s.kicks.add(d.ID, in.ConnID)
 	c.done()
 }
 
@@ -380,8 +426,14 @@ func (s *Server) cBookPatch(c *consoleCtx) {
 	if b == nil {
 		return
 	}
-	in := struct{ Name, Note *string }{}
+	in := struct {
+		Name, Note      *string
+		DefaultPassword *string `json:"default_password"`
+	}{}
 	if !c.body(&in) {
+		return
+	}
+	if in.DefaultPassword != nil && c.err(s.st.SetABPassword(b.GUID, *in.DefaultPassword)) {
 		return
 	}
 	if in.Name != nil {
@@ -669,6 +721,47 @@ func (s *Server) cSessionDelete(c *consoleCtx) {
 	c.done()
 }
 
+// cTokenCreate makes a named API token for scripts and for `rustdesk --assign`.
+// The secret is returned once and stored only as a hash.
+func (s *Server) cTokenCreate(c *consoleCtx) {
+	var in struct{ Name string }
+	if !c.body(&in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		c.fail(http.StatusBadRequest, "give the token a name")
+		return
+	}
+	tok, err := s.st.NewToken(&store.Token{UserID: c.user.ID, Kind: "api", Name: in.Name, IP: s.clientIP(c.r)}, 0)
+	if c.err(err) {
+		return
+	}
+	c.ok(map[string]string{"token": tok})
+}
+
+func (s *Server) cLogLogins(c *consoleCtx) {
+	limit, offset := page(c.r)
+	scope := c.user.ID
+	if c.user.IsAdmin {
+		scope = 0
+	}
+	rows, total, err := s.st.LoginLogs(scope, limit, offset)
+	if c.err(err) {
+		return
+	}
+	c.ok(map[string]any{"total": total, "rows": rows})
+}
+
+func (s *Server) cLogAlarms(c *consoleCtx) {
+	limit, offset := page(c.r)
+	rows, total, err := s.st.Alarms(limit, offset)
+	if c.err(err) {
+		return
+	}
+	c.ok(map[string]any{"total": total, "rows": rows})
+}
+
 func page(r *http.Request) (limit, offset int) {
 	limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
@@ -711,19 +804,67 @@ func (s *Server) cSettings(c *consoleCtx) {
 		"relay_server":  s.st.Setting(keyRelayServer),
 		"server_key":    s.st.Setting(keyServerKey),
 		"public_url":    s.st.Setting(keyPublicURL),
+		"allow_presets": s.st.Setting(keyAllowPresets) == "1",
+		"log_days":      s.st.Setting(keyLogDays),
+		"strategy":      strategyOptions(s.st.Setting(keyStrategy)),
 		"oidc":          ps,
 		"oidc_callback": s.publicURL(c.r) + oidcCallbackPath,
 	})
 }
 
+func strategyOptions(raw string) map[string]string {
+	opts := map[string]string{}
+	_ = json.Unmarshal([]byte(raw), &opts)
+	return opts
+}
+
 func (s *Server) cSettingsPut(c *consoleCtx) {
-	in := map[string]*string{}
+	in := map[string]json.RawMessage{}
 	if !c.body(&in) {
 		return
 	}
 	for _, k := range []string{keyIDServer, keyRelayServer, keyServerKey, keyPublicURL} {
-		if v := in[k]; v != nil {
-			if c.err(s.st.SetSetting(k, strings.TrimSpace(*v))) {
+		if raw, ok := in[k]; ok {
+			var v string
+			if json.Unmarshal(raw, &v) != nil || c.err(s.st.SetSetting(k, strings.TrimSpace(v))) {
+				return
+			}
+		}
+	}
+	if raw, ok := in["allow_presets"]; ok {
+		v := "0"
+		if string(raw) == "true" {
+			v = "1"
+		}
+		if c.err(s.st.SetSetting(keyAllowPresets, v)) {
+			return
+		}
+	}
+	if raw, ok := in["log_days"]; ok {
+		var v string
+		_ = json.Unmarshal(raw, &v)
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err != nil || n < 0 {
+			v = ""
+		}
+		if c.err(s.st.SetSetting(keyLogDays, strings.TrimSpace(v))) {
+			return
+		}
+	}
+	if raw, ok := in["strategy"]; ok {
+		opts := map[string]string{}
+		if json.Unmarshal(raw, &opts) != nil {
+			c.fail(http.StatusBadRequest, "device options must be an object of text values")
+			return
+		}
+		for k := range opts {
+			if strings.TrimSpace(k) == "" {
+				delete(opts, k)
+			}
+		}
+		enc, _ := json.Marshal(opts)
+		if string(enc) != s.st.Setting(keyStrategy) {
+			// A new timestamp makes every device fetch the options with its next heartbeat.
+			if c.err(s.st.SetSetting(keyStrategy, string(enc))) || c.err(s.st.SetSetting(keyStrategyAt, strconv.FormatInt(time.Now().Unix(), 10))) {
 				return
 			}
 		}

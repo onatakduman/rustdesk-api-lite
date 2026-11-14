@@ -56,7 +56,13 @@ func (s *Server) clientRoutes() {
 	m.HandleFunc("POST /api/sysinfo_ver", s.handleSysinfoVer)
 	m.HandleFunc("POST /api/audit/conn", s.handleAuditConn)
 	m.HandleFunc("POST /api/audit/file", s.handleAuditFile)
-	m.HandleFunc("POST /api/audit/alarm", s.handleAuditIgnored)
+	m.HandleFunc("POST /api/audit/alarm", s.handleAuditAlarm)
+	m.HandleFunc("GET /api/audit/conn/active", s.client(s.handleAuditActive))
+	m.HandleFunc("PUT /api/audit", s.client(s.handleAuditNote))
+
+	// Command-line enrolment: rustdesk --assign --token <API token> …
+	m.HandleFunc("POST /api/devices/cli", s.client(s.handleDevicesCLI))
+	m.HandleFunc("POST /api/devices/deploy", s.handleDevicesDeploy)
 }
 
 type clientCtx struct {
@@ -166,11 +172,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.checkLogin(r, in.Username, in.Password)
+	entry := &store.LoginLog{Username: in.Username, Kind: "client", Method: "password", DeviceID: in.ID, DeviceName: in.DeviceInfo.Name, IP: s.clientIP(r)}
 	if err != nil {
+		s.st.AddLoginLog(entry)
 		// 200 with an error field: the client shows the message as is.
 		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
 		return
 	}
+	entry.UserID, entry.Username, entry.OK = u.ID, u.Username, true
+	s.st.AddLoginLog(entry)
 	body, err := s.authBody(r, u, in.ID, in.UUID, in.DeviceInfo)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "Could not create a session")
@@ -235,6 +245,7 @@ func (s *Server) handleOIDCAuthQuery(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"error": "This account is disabled"})
 			return
 		}
+		s.st.AddLoginLog(&store.LoginLog{UserID: u.ID, Username: u.Username, Kind: "client", Method: sess.Provider, DeviceID: sess.DeviceID, DeviceName: sess.DeviceName, IP: s.clientIP(r), OK: true})
 		body, err := s.authBody(r, u, sess.DeviceID, sess.DeviceUUID, deviceInfo{OS: sess.DeviceOS, Name: sess.DeviceName})
 		if err != nil {
 			fail(w, http.StatusInternalServerError, "Could not create a session")
@@ -294,11 +305,12 @@ func (s *Server) handleABShared(c *clientCtx) {
 		return
 	}
 	type profile struct {
-		GUID  string `json:"guid"`
-		Name  string `json:"name"`
-		Owner string `json:"owner"`
-		Note  string `json:"note"`
-		Rule  int    `json:"rule"`
+		GUID  string            `json:"guid"`
+		Name  string            `json:"name"`
+		Owner string            `json:"owner"`
+		Note  string            `json:"note"`
+		Rule  int               `json:"rule"`
+		Info  map[string]string `json:"info,omitempty"`
 	}
 	// The client keys address books by name: names must be unique and must not
 	// collide with its built-in "My address book" / "Legacy address book".
@@ -316,7 +328,11 @@ func (s *Server) handleABShared(c *clientCtx) {
 			name = b.Name + " (" + b.Owner + " " + strconv.Itoa(i) + ")"
 		}
 		used[name] = true
-		all = append(all, profile{b.GUID, name, b.Owner, b.Note, b.Rule})
+		pr := profile{GUID: b.GUID, Name: name, Owner: b.Owner, Note: b.Note, Rule: b.Rule}
+		if b.DefaultPassword != "" {
+			pr.Info = map[string]string{"password": b.DefaultPassword}
+		}
+		all = append(all, pr)
 	}
 	limit, offset := paging(c.r)
 	page := []profile{}
@@ -583,16 +599,12 @@ func (s *Server) handleGroupPeers(c *clientCtx) {
 			"info":              map[string]any{"username": d.Username, "os": d.OS, "device_name": d.Hostname},
 			"user":              d.User,
 			"user_name":         d.User,
-			"device_group_name": "",
+			"device_group_name": d.Group,
 			"note":              d.Note,
 			"status":            1,
 		})
 	}
 	writeJSON(c.w, http.StatusOK, map[string]any{"total": len(ds), "data": page})
-}
-
-func (s *Server) handleDeviceGroups(c *clientCtx) {
-	writeJSON(c.w, http.StatusOK, map[string]any{"total": 0, "data": []any{}})
 }
 
 // ---- reports from installations ----
@@ -608,49 +620,9 @@ func (s *Server) reporter(id, uuid string) bool {
 	return err != nil || d.UUID == "" || d.UUID == uuid
 }
 
-func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		ID   string `json:"id"`
-		UUID string `json:"uuid"`
-	}
-	if err := readJSON(w, r, &in, bodySmall); err != nil || !s.reporter(in.ID, in.UUID) {
-		writeJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-	known, err := s.st.Heartbeat(in.ID, in.UUID, s.clientIP(r))
-	out := map[string]any{}
-	if err == nil && !known {
-		out["sysinfo"] = true // ask the client to send its system information
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
 func plain(w http.ResponseWriter, s string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, s)
-}
-
-func (s *Server) handleSysinfo(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		ID       string `json:"id"`
-		UUID     string `json:"uuid"`
-		Hostname string `json:"hostname"`
-		Username string `json:"username"`
-		OS       string `json:"os"`
-		CPU      string `json:"cpu"`
-		Memory   string `json:"memory"`
-		Version  string `json:"version"`
-	}
-	if err := readJSON(w, r, &in, bodySmall); err != nil || !s.reporter(in.ID, in.UUID) {
-		plain(w, "ID_NOT_FOUND")
-		return
-	}
-	d := &store.Device{ID: in.ID, UUID: in.UUID, Hostname: in.Hostname, Username: in.Username, OS: in.OS, CPU: in.CPU, Memory: in.Memory, Version: in.Version}
-	if err := s.st.SaveSysinfo(d, s.clientIP(r)); err != nil {
-		plain(w, "ID_NOT_FOUND")
-		return
-	}
-	plain(w, "SYSINFO_UPDATED")
 }
 
 // handleSysinfoVer returns a marker; the client re-sends its system
@@ -692,6 +664,9 @@ func (s *Server) auditRecord(w http.ResponseWriter, r *http.Request) (map[string
 	id, _ := in["id"].(string)
 	uuid, _ := in["uuid"].(string)
 	d, err := s.st.Device(id)
+	if _, isNote := in["note"].(string); isNote && uuid == "" && err == nil {
+		return in, id // a session note from the controlling side carries no uuid
+	}
 	if err != nil || d.UUID == "" || d.UUID != uuid {
 		return nil, ""
 	}
@@ -704,6 +679,15 @@ func (s *Server) auditRecord(w http.ResponseWriter, r *http.Request) (map[string
 func (s *Server) handleAuditConn(w http.ResponseWriter, r *http.Request) {
 	in, id := s.auditRecord(w, r)
 	if in == nil {
+		return
+	}
+	if note, ok := in["note"].(string); ok {
+		// Sent by the controlling side: {"id": controlled device, "session_id", "note"}.
+		if n, ok := in["session_id"].(json.Number); ok {
+			if row := s.st.ActiveConn(id, n.String()); row != 0 {
+				_ = s.st.SetConnNote(row, note)
+			}
+		}
 		return
 	}
 	connID := jsonInt(in["conn_id"])
@@ -738,10 +722,4 @@ func (s *Server) handleAuditFile(w http.ResponseWriter, r *http.Request) {
 	a.IsFile, _ = in["is_file"].(bool)
 	a.Info, _ = in["info"].(string)
 	_ = s.st.AddFileAudit(a)
-}
-
-// handleAuditIgnored accepts reports this server does not keep (alarms).
-func (s *Server) handleAuditIgnored(w http.ResponseWriter, r *http.Request) {
-	_, _ = io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, bodySmall))
-	w.WriteHeader(http.StatusOK)
 }

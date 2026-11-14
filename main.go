@@ -137,6 +137,7 @@ func serve(st *store.Store, listen string, trust bool) {
 		log.Fatal(err)
 	}
 	app := server.New(st, server.Config{TrustProxy: trust, Web: web})
+	go app.Maintain()
 	srv := &http.Server{
 		Addr:              listen,
 		Handler:           app.Handler(),

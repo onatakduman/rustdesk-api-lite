@@ -206,6 +206,7 @@ func (s *Store) IdentityProviders(userID int64) []string {
 // Token is a signed-in session of a RustDesk client or the web console.
 type Token struct {
 	ID         string `json:"id"` // first 12 hex chars of the hash; enough to address a row
+	Name       string `json:"name"`
 	UserID     int64  `json:"user_id"`
 	Username   string `json:"username,omitempty"`
 	Kind       string `json:"kind"`
@@ -227,8 +228,8 @@ func (s *Store) NewToken(t *Token, ttlSeconds int64) (string, error) {
 	if ttlSeconds > 0 {
 		exp = n + ttlSeconds
 	}
-	_, err := s.db.Exec(`INSERT INTO tokens(hash, user_id, kind, device_id, device_uuid, device_name, device_os, ip, created_at, last_used_at, expires_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, hashToken(plain), t.UserID, t.Kind, t.DeviceID, t.DeviceUUID, t.DeviceName, t.DeviceOS, t.IP, n, n, exp)
+	_, err := s.db.Exec(`INSERT INTO tokens(hash, user_id, kind, name, device_id, device_uuid, device_name, device_os, ip, created_at, last_used_at, expires_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, hashToken(plain), t.UserID, t.Kind, t.Name, t.DeviceID, t.DeviceUUID, t.DeviceName, t.DeviceOS, t.IP, n, n, exp)
 	return plain, err
 }
 
@@ -278,7 +279,7 @@ func (s *Store) DeleteTokenByID(id string, userID int64) error {
 
 // ListTokens lists sessions; userID 0 lists everyone's.
 func (s *Store) ListTokens(userID int64) ([]*Token, error) {
-	rows, err := s.db.Query(`SELECT substr(t.hash, 1, 12), t.user_id, u.username, t.kind, t.device_id, t.device_name, t.device_os, t.ip, t.created_at, t.last_used_at, t.expires_at
+	rows, err := s.db.Query(`SELECT substr(t.hash, 1, 12), t.name, t.user_id, u.username, t.kind, t.device_id, t.device_name, t.device_os, t.ip, t.created_at, t.last_used_at, t.expires_at
 		FROM tokens t JOIN users u ON u.id = t.user_id WHERE (? = 0 OR t.user_id = ?) ORDER BY t.last_used_at DESC`, userID, userID)
 	if err != nil {
 		return nil, err
@@ -287,7 +288,7 @@ func (s *Store) ListTokens(userID int64) ([]*Token, error) {
 	out := []*Token{}
 	for rows.Next() {
 		t := &Token{}
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Username, &t.Kind, &t.DeviceID, &t.DeviceName, &t.DeviceOS, &t.IP, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.UserID, &t.Username, &t.Kind, &t.DeviceID, &t.DeviceName, &t.DeviceOS, &t.IP, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

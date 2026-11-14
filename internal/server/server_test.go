@@ -18,6 +18,7 @@ type harness struct {
 	t   *testing.T
 	st  *store.Store
 	srv *httptest.Server
+	app *Server
 }
 
 func newHarness(t *testing.T) *harness {
@@ -28,9 +29,10 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { st.Close() })
 	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>console")}}
-	srv := httptest.NewServer(New(st, Config{Web: web}).Handler())
+	app := New(st, Config{Web: web})
+	srv := httptest.NewServer(app.Handler())
 	t.Cleanup(srv.Close)
-	return &harness{t, st, srv}
+	return &harness{t, st, srv, app}
 }
 
 // call sends a request and returns status, raw body and the body decoded as JSON (nil when not JSON).
@@ -353,3 +355,125 @@ func TestConsoleAuth(t *testing.T) {
 }
 
 func mustString(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+func TestNotesAlarmsKicksAndOptions(t *testing.T) {
+	h := newHarness(t)
+	h.user("ada", true)
+	tok := h.login("ada")
+	dev := map[string]any{"id": "777", "uuid": "u1", "hostname": "box", "os": "windows / Windows 11", "version": "1.5.3"}
+	h.call("POST", "/api/sysinfo", "", dev)
+
+	// Session note: the app asks for the record, then writes the note.
+	req, _ := http.NewRequest("POST", h.srv.URL+"/api/audit/conn", strings.NewReader(`{"peer":["123","ada"],"type":0,"id":"777","uuid":"u1","conn_id":9,"session_id":14172034923488123456,"nonce":"a1"}`))
+	if res, err := http.DefaultClient.Do(req); err != nil || res.StatusCode != 200 {
+		t.Fatal(err)
+	}
+	_, raw, v := h.call("GET", "/api/audit/conn/active?id=777&session_id=14172034923488123456&conn_type=0", tok, nil)
+	guid, _ := v.(string)
+	if guid == "" {
+		t.Fatalf("active record must be a JSON string: %s", raw)
+	}
+	if code, raw, _ := h.call("PUT", "/api/audit", tok, map[string]string{"guid": guid, "note": "fixed the printer"}); code != 200 || raw != "" {
+		t.Fatalf("note: %d %q", code, raw)
+	}
+	if rows, _, _ := h.st.ConnAudits(5, 0); rows[0].Note != "fixed the printer" {
+		t.Fatalf("note not stored: %+v", rows[0])
+	}
+	if _, raw, v := h.call("GET", "/api/audit/conn/active?id=777&session_id=1", tok, nil); v != "" {
+		t.Fatalf("unknown session must answer an empty string: %s", raw)
+	}
+
+	// Alarm.
+	if code, raw, _ := h.call("POST", "/api/audit/alarm", "", map[string]any{"id": "777", "uuid": "u1", "typ": 1, "info": "{}", "nonce": "al1"}); code != 200 || raw != "" {
+		t.Fatalf("alarm: %d %q", code, raw)
+	}
+	if _, n, _ := h.st.Alarms(5, 0); n != 1 {
+		t.Fatal("alarm not stored")
+	}
+
+	// Live connections are kept; a requested disconnect reaches the device once.
+	h.call("POST", "/api/heartbeat", "", map[string]any{"id": "777", "uuid": "u1", "conns": []int{9}})
+	if d, _ := h.st.Device("777"); len(d.Conns) != 1 || d.Conns[0] != 9 {
+		t.Fatalf("conns: %+v", d.Conns)
+	}
+	h.srvKick("777", 9)
+	_, raw, v = h.call("POST", "/api/heartbeat", "", map[string]any{"id": "777", "uuid": "u1", "conns": []int{9}})
+	if d, _ := v.(map[string]any)["disconnect"].([]any); len(d) != 1 || d[0] != float64(9) {
+		t.Fatalf("disconnect: %s", raw)
+	}
+	if _, _, v := h.call("POST", "/api/heartbeat", "", map[string]any{"id": "777", "uuid": "u1"}); v.(map[string]any)["disconnect"] != nil {
+		t.Fatal("disconnect must be delivered once")
+	}
+
+	// Pushed options: sent while the device's timestamp differs, then no more.
+	_ = h.st.SetSetting(keyStrategy, `{"enable-lan-discovery":"N"}`)
+	_ = h.st.SetSetting(keyStrategyAt, "1700000000")
+	_, raw, v = h.call("POST", "/api/heartbeat", "", map[string]any{"id": "777", "uuid": "u1", "modified_at": 0})
+	m := v.(map[string]any)
+	if m["modified_at"] != float64(1700000000) || m["strategy"].(map[string]any)["config_options"].(map[string]any)["enable-lan-discovery"] != "N" {
+		t.Fatalf("strategy: %s", raw)
+	}
+	if _, _, v := h.call("POST", "/api/heartbeat", "", map[string]any{"id": "777", "uuid": "u1", "modified_at": 1700000000}); v.(map[string]any)["strategy"] != nil {
+		t.Fatal("up-to-date device must not get the options again")
+	}
+
+	// Device groups reach the app.
+	_ = h.st.SetDeviceGroup("777", "HQ")
+	h.st.AssignDevice("777", 1)
+	_, raw, _ = h.call("GET", "/api/device-group/accessible?current=1&pageSize=100", tok, nil)
+	if !strings.Contains(raw, `"name":"HQ"`) {
+		t.Fatalf("device groups: %s", raw)
+	}
+	_, raw, _ = h.call("GET", "/api/peers?current=1&pageSize=100", tok, nil)
+	if !strings.Contains(raw, `"device_group_name":"HQ"`) {
+		t.Fatalf("group on peer: %s", raw)
+	}
+}
+
+func (h *harness) srvKick(device string, conn int64) { h.app.kicks.add(device, conn) }
+
+func TestEnrolment(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada", true)
+	h.user("bob", false)
+	guid, _ := h.st.CreateAB(ada.ID, "Field", "")
+	dev := map[string]any{"id": "888", "uuid": "u8", "hostname": "kiosk", "os": "android / Android 14", "version": "1.5.3",
+		"preset-user-name": "bob", "preset-device-group-name": "Kiosks", "preset-address-book-name": "Field", "preset-address-book-tag": "depot", "preset-address-book-alias": "Kiosk 1"}
+
+	// Off by default: a device cannot enrol itself.
+	h.call("POST", "/api/sysinfo", "", dev)
+	if d, _ := h.st.Device("888"); d.UserID != 0 || d.Group != "" || h.st.HasPeer(guid, "888") {
+		t.Fatalf("presets must be ignored unless enabled: %+v", d)
+	}
+	_ = h.st.SetSetting(keyAllowPresets, "1")
+	h.call("POST", "/api/sysinfo", "", dev)
+	d, _ := h.st.Device("888")
+	peers, _, _ := h.st.Peers(guid, 0, 0)
+	if d.User != "bob" || d.Group != "Kiosks" || len(peers) != 1 || peers[0]["alias"] != "Kiosk 1" || peers[0]["platform"] != "Android" {
+		t.Fatalf("enrolment: %+v %+v", d, peers)
+	}
+	if tags, _ := h.st.Tags(guid); len(tags) != 1 || tags[0].Name != "depot" {
+		t.Fatalf("tag: %+v", tags)
+	}
+	// A device cannot move itself to another owner afterwards.
+	dev["preset-user-name"] = "ada"
+	h.call("POST", "/api/sysinfo", "", dev)
+	if d, _ := h.st.Device("888"); d.User != "bob" {
+		t.Fatal("presets must not override an existing owner")
+	}
+
+	// rustdesk --assign with an administrator's API token overrides; empty body = "Done!".
+	tok, _ := h.st.NewToken(&store.Token{UserID: ada.ID, Kind: "api", Name: "deploy"}, 0)
+	if code, raw, _ := h.call("POST", "/api/devices/cli", tok, map[string]any{"id": "888", "uuid": "u8", "user_name": "ada", "note": "front desk"}); code != 200 || raw != "" {
+		t.Fatalf("assign: %d %q", code, raw)
+	}
+	if d, _ := h.st.Device("888"); d.User != "ada" || d.Note != "front desk" {
+		t.Fatalf("assign not applied: %+v", d)
+	}
+	if _, raw, _ := h.call("POST", "/api/devices/cli", tok, map[string]any{"id": "888", "uuid": "u8", "user_name": "nobody"}); !strings.Contains(raw, "No such user") {
+		t.Fatalf("unknown user: %q", raw)
+	}
+	if _, raw, _ := h.call("POST", "/api/devices/cli", h.login("bob"), map[string]any{"id": "888", "uuid": "u8"}); !strings.Contains(raw, "Administrator") {
+		t.Fatalf("non-admin: %q", raw)
+	}
+}

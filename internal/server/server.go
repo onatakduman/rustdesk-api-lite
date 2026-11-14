@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +39,12 @@ type Server struct {
 	fails  *failCounter
 	oidc   *oidcCache
 	nonces *nonceSet
+	kicks  *kickList
 }
 
 // New builds the application.
 func New(st *store.Store, cfg Config) *Server {
-	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}}
+	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}}
 	s.clientRoutes()
 	s.oidcRoutes()
 	s.consoleRoutes()
@@ -64,6 +66,15 @@ const (
 	keyRelayServer = "relay_server"
 	keyServerKey   = "server_key"
 	keyPublicURL   = "public_url"
+	// keyAllowPresets lets installations enrol themselves (owner, group, address book)
+	// through the preset-* options of a custom client. Off unless set to "1".
+	keyAllowPresets = "allow_presets"
+	// keyStrategy holds a JSON object of client options pushed to every device;
+	// keyStrategyAt is the unix time of its last change.
+	keyStrategy   = "strategy_options"
+	keyStrategyAt = "strategy_modified_at"
+	// keyLogDays is how long logs are kept (0 or empty = forever).
+	keyLogDays = "log_retention_days"
 )
 
 // publicURL is the externally visible base URL, without a trailing slash.
@@ -270,4 +281,17 @@ func (n *nonceSet) seen(nonce string) bool {
 	}
 	n.m[nonce] = now
 	return false
+}
+
+// Maintain runs periodic housekeeping until the process exits: logs older
+// than the configured retention are removed.
+func (s *Server) Maintain() {
+	for {
+		if days, _ := strconv.Atoi(s.st.Setting(keyLogDays)); days > 0 {
+			if n := s.st.PruneLogs(time.Now().Unix() - int64(days)*86400); n > 0 {
+				log.Printf("removed %d log rows older than %d days", n, days)
+			}
+		}
+		time.Sleep(time.Hour)
+	}
 }

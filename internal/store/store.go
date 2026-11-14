@@ -172,6 +172,34 @@ CREATE TABLE settings (
   value TEXT NOT NULL
 );
 `,
+	// 2: API tokens, sign-in log, alarms, session notes, device groups and live connections
+	`
+ALTER TABLE tokens ADD COLUMN name TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT '';
+ALTER TABLE address_books ADD COLUMN default_password TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN conns TEXT NOT NULL DEFAULT '';
+ALTER TABLE audit_conn ADD COLUMN note TEXT NOT NULL DEFAULT '';
+CREATE TABLE login_log (
+  rowid_      INTEGER PRIMARY KEY,
+  user_id     INTEGER NOT NULL DEFAULT 0,
+  username    TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  method      TEXT NOT NULL DEFAULT '',
+  device_id   TEXT NOT NULL DEFAULT '',
+  device_name TEXT NOT NULL DEFAULT '',
+  ip          TEXT NOT NULL DEFAULT '',
+  ok          INTEGER NOT NULL DEFAULT 1,
+  at          INTEGER NOT NULL
+);
+CREATE TABLE alarms (
+  rowid_    INTEGER PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  typ       INTEGER NOT NULL DEFAULT 0,
+  info      TEXT NOT NULL DEFAULT '',
+  at        INTEGER NOT NULL
+);
+`,
 }
 
 func (s *Store) migrate() error {

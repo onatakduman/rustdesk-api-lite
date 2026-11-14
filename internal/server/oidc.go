@@ -271,6 +271,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.st.DeleteOIDCSession(sess.Code)
+		s.st.AddLoginLog(&store.LoginLog{UserID: u.ID, Username: u.Username, Kind: "console", Method: sess.Provider, DeviceName: "Web console", IP: s.clientIP(r), OK: true})
 		if err := s.newConsoleSession(w, r, u); err != nil {
 			oidcPage(w, http.StatusInternalServerError, "Sign-in failed", "Could not create a session.")
 			return

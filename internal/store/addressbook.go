@@ -26,6 +26,8 @@ type AddressBook struct {
 	Rule      int    `json:"rule"`
 	PeerCount int    `json:"peer_count"`
 	CreatedAt int64  `json:"created_at"`
+	// DefaultPassword is offered by the app for every peer of a shared book that has none of its own.
+	DefaultPassword string `json:"default_password"`
 }
 
 // Peer is one address-book entry. It is kept as the JSON object the client
@@ -67,14 +69,14 @@ func (s *Store) PersonalAB(userID int64) (string, error) {
 	return guid, nil
 }
 
-const abSelect = `SELECT b.guid, b.owner_id, u.username, b.name, b.personal, b.note, b.created_at,
+const abSelect = `SELECT b.guid, b.owner_id, u.username, b.name, b.personal, b.note, b.created_at, b.default_password,
 	(SELECT COUNT(*) FROM ab_peers p WHERE p.ab_guid = b.guid),
 	CASE WHEN b.owner_id = ?1 THEN 3 ELSE COALESCE((SELECT rule FROM ab_shares sh WHERE sh.ab_guid = b.guid AND sh.user_id = ?1), 0) END
 	FROM address_books b JOIN users u ON u.id = b.owner_id`
 
 func scanAB(sc interface{ Scan(...any) error }) (*AddressBook, error) {
 	b := &AddressBook{}
-	err := sc.Scan(&b.GUID, &b.OwnerID, &b.Owner, &b.Name, &b.Personal, &b.Note, &b.CreatedAt, &b.PeerCount, &b.Rule)
+	err := sc.Scan(&b.GUID, &b.OwnerID, &b.Owner, &b.Name, &b.Personal, &b.Note, &b.CreatedAt, &b.DefaultPassword, &b.PeerCount, &b.Rule)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

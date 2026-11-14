@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make test
+      - name: Install with the script and check that the server answers
+        run: |
+          make linux
+          sudo RDL_BINARY=dist/rustdesk-api-lite-linux-amd64 sh install.sh
+          curl -fsS http://127.0.0.1:21114/console/api/bootstrap

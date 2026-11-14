@@ -268,6 +268,8 @@ dialog p + p { margin-top: 10px; }
   .tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .peer-art { height: 88px; }
   .wide-only { display: none !important; }
+  .peer-foot { gap: 4px; padding-right: 2px; }
+  .peer-foot .icon-btn { width: 26px; }
   .tiles.as-list .peer .cols { display: none; }
   .head .seg, .head select.sort { order: 6; }
   td, th { padding-left: 12px; padding-right: 12px; }

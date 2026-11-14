@@ -240,7 +240,7 @@ async function render() {
   const main = h('main', null);
   app.replaceChildren(h('div', { class: 'shell' },
     h('aside', { class: 'side' },
-      h('div', { class: 'brand' }, h('img', { src: '/icon.svg', alt: '' }), 'RustDesk API Lite'),
+      brandMark(),
       serverCard(),
       h('nav', { class: 'nav', 'aria-label': 'Main' }, items.map(link)),
       h('div', { class: 'me' }, h('div', { class: 'avatar' }, (state.user.username[0] || '?').toUpperCase()),
@@ -259,6 +259,23 @@ function serverCard() {
     c.key && h('div', { class: 'kv' }, h('span', null, t('Key')), h('b', { class: 'mono' }, c.key)),
     c.encoded && h('button', { class: 'btn small', onclick: () => copy(c.encoded) }, t('Copy client configuration')));
 }
+// The link the RustDesk app opens for an id such as 123, 123@host or 123@host?key=K.
+// The app reads the query like a web form, where a bare "+" is a space, and server keys
+// are base64 with "+" in them, so the values are percent-encoded.
+function connectURL(id) {
+  const q = id.indexOf('?');
+  if (q < 0) return 'rustdesk://' + id;
+  const query = id.slice(q + 1).split('&').map(kv => {
+    const i = kv.indexOf('=');
+    return i < 0 ? kv : kv.slice(0, i + 1) + encodeURIComponent(kv.slice(i + 1));
+  }).join('&');
+  return 'rustdesk://' + id.slice(0, q) + '?' + query;
+}
+
+function brandMark() {
+  return h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, h('img', { src: '/icon.svg', alt: '' })), 'RustDesk API Lite');
+}
+
 async function signOut() { try { await api('POST', '/logout'); } catch { /* already gone */ } state.user = null; render(); }
 async function afterLogin(user) {
   state.user = user;
@@ -277,7 +294,7 @@ function loginView() {
       if (ex.data?.totp) { code.classList.remove('hide'); code.querySelector('input').focus(); }
     }
   } },
-    h('div', { class: 'brand' }, h('img', { src: '/icon.svg', alt: '' }), 'RustDesk API Lite'),
+    brandMark(),
     field(t('Username'), h('input', { type: 'text', name: 'username', autocomplete: 'username', required: true, autofocus: true })),
     field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true })),
     code, err, h('button', { class: 'btn primary', type: 'submit' }, t('Sign in')),
@@ -373,7 +390,7 @@ async function booksView(main) {
     art.style.background = peerColor(s.id, p.platform);
     if (canEdit) art.prepend(h('input', { type: 'checkbox', class: 'pick-box', 'aria-label': t('Select'), checked: ab.sel.has(p.id), onchange: e => { e.target.checked ? ab.sel.add(p.id) : ab.sel.delete(p.id); batchBar(); } }));
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
-      { label: t('Connect'), run: () => { location.href = 'rustdesk://' + p.id; } },
+      { label: t('Connect'), run: () => { location.href = connectURL(p.id); } },
       { label: t('Copy ID'), run: () => copy(p.id) },
       canEdit && '-', canEdit && { label: t('Edit'), run: () => editPeer(p) },
       canEdit && { label: t('Remove'), danger: true, run: async () => {
@@ -537,7 +554,7 @@ async function devicesView(main) {
   const patch = (d, body) => api('PATCH', '/devices/' + encodeURIComponent(d.id), body);
   const row = d => {
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
-      { label: t('Connect'), run: () => { location.href = 'rustdesk://' + d.id; } },
+      { label: t('Connect'), run: () => { location.href = connectURL(d.id); } },
       { label: t('Copy ID'), run: () => copy(d.id) },
       { label: t('Add to address book'), run: () => addToBook([d]) },
       admin && { label: t('Set owner'), run: async () => {

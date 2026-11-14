@@ -10,7 +10,10 @@ One static binary, one SQLite file, about 15 MB of memory. No Docker, no
 Node, no external database.
 
 > This is an independent project. It is not affiliated with or endorsed by
-> RustDesk. "RustDesk" is a trademark of its owner.
+> RustDesk. "RustDesk" and the RustDesk logo are trademarks of their owner.
+> The console shows the logo (`web/icon.svg`, taken unchanged from the RustDesk
+> project) only to say which software it is a companion to; that file is not
+> covered by this project's MIT license.
 
 ## What it does
 

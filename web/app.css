@@ -82,7 +82,9 @@ textarea { resize: vertical; min-height: 64px; }
 .shell { display: grid; grid-template-columns: var(--side) minmax(0, 1fr); height: 100%; }
 .side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
-.brand img { width: 26px; height: 26px; }
+/* The RustDesk mark sits on a white tile, the way the app icon shows it, in both themes. */
+.brand-mark { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #fff; box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(15, 23, 42, .08); }
+.brand-mark img { width: 20px; height: 20px; display: block; }
 .side .brand { padding: 18px 20px 6px; }
 .server { padding: 14px 20px 16px; border-bottom: 1px solid var(--line); }
 .server h2 { font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 10px; }

@@ -218,6 +218,14 @@ CREATE TABLE ab_group_shares (
   PRIMARY KEY (ab_guid, group_id)
 );
 `,
+	// 5: sign-in hardening. Providers that exist keep linking accounts by e-mail
+	// (administrators excepted, see oidcUser); new ones start with it off.
+	`
+ALTER TABLE oidc_providers ADD COLUMN link_by_email INTEGER NOT NULL DEFAULT 0;
+UPDATE oidc_providers SET link_by_email = 1;
+ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 func (s *Store) migrate() error {

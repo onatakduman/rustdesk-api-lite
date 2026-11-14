@@ -22,13 +22,16 @@ type User struct {
 	HasPassword bool   `json:"has_password"`
 	HasTOTP     bool   `json:"has_totp"`
 	GroupID     int64  `json:"group_id"`
+	// MustChangePassword is set for the account of the first start: until the
+	// password is changed, the account can do nothing else.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
-const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> '', group_id"
+const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> '', group_id, must_change_password"
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
-	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP, &u.GroupID)
+	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP, &u.GroupID, &u.MustChangePassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -156,10 +159,17 @@ func (s *Store) SetPassword(userID int64, password, keepToken string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", h, userID); err != nil {
+	if _, err := s.db.Exec("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?", h, userID); err != nil {
 		return err
 	}
 	_, err = s.db.Exec("DELETE FROM tokens WHERE user_id = ? AND hash <> ?", userID, hashToken(keepToken))
+	return err
+}
+
+// SetMustChangePassword marks an account whose password has to be replaced
+// before it can be used (the account of the first start).
+func (s *Store) SetMustChangePassword(userID int64, must bool) error {
+	_, err := s.db.Exec("UPDATE users SET must_change_password = ? WHERE id = ?", must, userID)
 	return err
 }
 
@@ -335,6 +345,17 @@ func (s *Store) TOTPSecret(userID int64) string {
 
 // SetTOTP turns two-step sign-in on (secret) or off ("").
 func (s *Store) SetTOTP(userID int64, secret string) error {
-	_, err := s.db.Exec("UPDATE users SET totp_secret = ? WHERE id = ?", secret, userID)
+	_, err := s.db.Exec("UPDATE users SET totp_secret = ?, totp_last_step = 0 WHERE id = ?", secret, userID)
 	return err
+}
+
+// UseTOTPStep records that the code of a time step was used to sign in. It
+// reports false when that step, or a later one, was used before: a code works once.
+func (s *Store) UseTOTPStep(userID, step int64) bool {
+	res, err := s.db.Exec("UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?", step, userID, step)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1
 }

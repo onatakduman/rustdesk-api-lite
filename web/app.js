@@ -43,6 +43,9 @@ const TR = {
   'Client configuration': 'İstemci yapılandırması', 'Paste this into RustDesk under Settings, Network, ID/Relay server, Import.': 'Bunu RustDesk\'te Ayarlar, Ağ, ID/Aktarma sunucusu, İçe aktar bölümüne yapıştır.',
   'Sign-in providers': 'Giriş sağlayıcıları', 'Add provider': 'Sağlayıcı ekle', 'Issuer': 'Yayıncı (issuer)', 'Client ID': 'İstemci kimliği', 'Client secret': 'İstemci gizli anahtarı',
   'Leave empty to keep the stored secret.': 'Kayıtlı gizli anahtarı korumak için boş bırak.', 'Create accounts for new people who sign in': 'Giriş yapan yeni kişiler için hesap aç',
+  'Sign people in to the account that has their verified e-mail address': 'Kişileri, doğrulanmış e-posta adresini taşıyan hesaba giriş yaptır',
+  'Only for a provider you trust to verify addresses, such as your own directory. Administrators are never found this way: they link the sign-in themselves, under Settings.': 'Yalnız adresleri doğruladığına güvendiğin bir sağlayıcıda aç, örneğin kendi dizininde. Yöneticiler bu yolla hiç bulunmaz: girişi Ayarlar’dan kendileri bağlar.',
+  'This account still has the password it was created with. Choose your own to continue.': 'Bu hesap hâlâ oluşturulduğu parolayı kullanıyor. Devam etmek için kendi parolanı belirle.',
   'Redirect address to register at the provider': 'Sağlayıcıya kaydedilecek yönlendirme adresi', 'No provider configured': 'Sağlayıcı ayarlanmadı',
   'Delete the provider {0}? People linked through it lose that sign-in.': '{0} sağlayıcısı silinsin mi? Onunla bağlı kişiler o girişi kaybeder.',
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
@@ -259,6 +262,7 @@ async function render() {
   const app = document.getElementById('app');
   document.documentElement.lang = lang;
   if (!state.user) { app.replaceChildren(loginView()); return; }
+  if (state.user.must_change_password) { app.replaceChildren(passwordGate()); return; }
   const { view } = route();
   const items = NAV.filter(n => !n.admin || state.user.is_admin);
   // The side pane folds down to a rail of icons; the choice is kept in this browser.
@@ -348,8 +352,29 @@ function brandMark() {
 async function signOut() { try { await api('POST', '/logout'); } catch { /* already gone */ } state.user = null; render(); }
 async function afterLogin(user) {
   state.user = user;
-  try { state.overview = await api('GET', '/overview'); } catch { state.overview = null; }
+  state.overview = null;
+  if (!user.must_change_password) { try { state.overview = await api('GET', '/overview'); } catch { /* shown without it */ } }
   render();
+}
+// The account of the first start can do nothing until it has a password of its own.
+function passwordGate() {
+  const err = h('div', { class: 'err', role: 'alert' });
+  const out = h('button', { class: 'btn', type: 'button', onclick: signOut }, t('Sign out'));
+  out.style.marginTop = '8px';
+  const form = h('form', { onsubmit: async e => {
+    e.preventDefault();
+    const f = new FormData(form);
+    try {
+      await api('POST', '/me/password', { current: f.get('current'), new: f.get('new') });
+      afterLogin({ ...state.user, must_change_password: false, has_password: true });
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    brandMark(),
+    h('p', { class: 'muted', style: 'margin:0 0 14px' }, t('This account still has the password it was created with. Choose your own to continue.')),
+    field(t('Current password'), h('input', { type: 'password', name: 'current', autocomplete: 'current-password', required: true, autofocus: true })),
+    field(t('New password'), h('input', { type: 'password', name: 'new', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.')),
+    err, h('button', { class: 'btn primary', type: 'submit' }, t('Change password')), out);
+  return h('div', { class: 'login' }, form);
 }
 function loginView() {
   const err = h('div', { class: 'err', role: 'alert' });
@@ -917,8 +942,10 @@ async function settingsView(main) {
         field(t('Client ID'), text('client_id', p?.client_id || '', { required: true })),
         field(t('Client secret'), h('input', { type: 'password', name: 'client_secret', autocomplete: 'off', required: !p }), p && t('Leave empty to keep the stored secret.')),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'auto_register', checked: p?.auto_register }), t('Create accounts for new people who sign in')),
+        h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'link_by_email', checked: p?.link_by_email }), t('Sign people in to the account that has their verified e-mail address')),
+        h('small', { class: 'muted', style: 'display:block;margin:4px 0 14px' }, t('Only for a provider you trust to verify addresses, such as your own directory. Administrators are never found this way: they link the sign-in themselves, under Settings.')),
         field(t('Redirect address to register at the provider'), h('div', { class: 'copybox' }, h('span', { class: 'mono trunc grow' }, cfg.oidc_callback), h('button', { class: 'btn small', type: 'button', onclick: () => copy(cfg.oidc_callback) }, t('Copy')))),
-      ], f => api('PUT', '/oidc/' + encodeURIComponent(p ? p.name : f.get('name')), { issuer: f.get('issuer'), client_id: f.get('client_id'), client_secret: f.get('client_secret'), auto_register: f.has('auto_register') })) && render();
+      ], f => api('PUT', '/oidc/' + encodeURIComponent(p ? p.name : f.get('name')), { issuer: f.get('issuer'), client_id: f.get('client_id'), client_secret: f.get('client_secret'), auto_register: f.has('auto_register'), link_by_email: f.has('link_by_email') })) && render();
     };
     panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Sign-in providers')), h('button', { class: 'btn small', onclick: () => editProvider() }, t('Add provider'))),
       h('div', { class: 'list' }, cfg.oidc.length ? cfg.oidc.map(p => h('div', null, h('div', { class: 'grow' }, h('b', null, p.name), h('div', { class: 'sub trunc' }, p.issuer)),

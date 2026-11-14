@@ -3,7 +3,7 @@
 #     -p 127.0.0.1:21114:21114 -v rustdesk-api-lite:/data ghcr.io/onatakduman/rustdesk-api-lite
 #   docker logs rustdesk-api-lite | grep 'First start'     # the admin password
 # Or build it straight from the repository, no checkout needed:
-#   docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.2
+#   docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.3
 
 # The build stage runs on the CPU of the machine that builds and cross-compiles,
 # so an image for another platform needs no emulation.

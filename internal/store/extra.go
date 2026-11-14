@@ -146,6 +146,16 @@ func (s *Store) ActiveConn(deviceID, sessionID string) int64 {
 	return id
 }
 
+// ConnPeer returns the device a recorded session went into and the RustDesk id
+// it was opened from.
+func (s *Store) ConnPeer(id int64) (deviceID, peerID string, err error) {
+	err = s.db.QueryRow("SELECT device_id, peer_id FROM audit_conn WHERE rowid_ = ?", id).Scan(&deviceID, &peerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return deviceID, peerID, err
+}
+
 // SetConnNote stores the note written for a session.
 func (s *Store) SetConnNote(id int64, note string) error {
 	if len(note) > 1024 {

@@ -33,7 +33,7 @@ The script exits non-zero on failure and ends with lines to parse:
 
 ```
 status=installed            # or upgraded, uninstalled, failed
-version=v0.1.2
+version=v0.1.3
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -81,7 +81,10 @@ docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 
 Things to leave to the user: the admin password (pass it on, do not store
 it), DNS and the certificate of the public address, and the choice of who
-gets an account.
+gets an account. The printed admin password only opens the console, which
+makes the user replace it at the first sign-in; it does not sign in a
+RustDesk app and cannot call the console's API for you. Set the server up
+with the command line above instead.
 
 ## Working on the code
 

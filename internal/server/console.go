@@ -121,6 +121,10 @@ func (s *Server) authed(admin bool, h consoleHandler) http.HandlerFunc {
 			fail(w, http.StatusForbidden, "administrator rights required")
 			return
 		}
+		if u.MustChangePassword && r.URL.Path != passwordPath {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "change the password of this account first", "must_change_password": true})
+			return
+		}
 		h(&consoleCtx{w: w, r: r, user: u, tok: tok})
 	}
 }
@@ -134,7 +138,7 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("POST "+p+"/logout", s.handleConsoleLogout)
 
 	m.HandleFunc("GET "+p+"/overview", s.authed(false, s.cOverview))
-	m.HandleFunc("POST "+p+"/me/password", s.authed(false, s.cOwnPassword))
+	m.HandleFunc("POST "+passwordPath, s.authed(false, s.cOwnPassword))
 	m.HandleFunc("DELETE "+p+"/me/identities/{provider}", s.authed(false, s.cOwnUnlink))
 	m.HandleFunc("POST "+p+"/me/totp/new", s.authed(false, s.cTOTPNew))
 	m.HandleFunc("POST "+p+"/me/totp", s.authed(false, s.cTOTPEnable))
@@ -206,6 +210,10 @@ func (s *Server) consoleRoutes() {
 	}
 }
 
+// passwordPath is the one console call an account that still has to change
+// its password may make.
+const passwordPath = "/console/api/me/password"
+
 type userView struct {
 	*store.User
 	Providers []string `json:"providers"`
@@ -242,7 +250,7 @@ func (s *Server) handleConsoleLogin(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "enter the code from your authenticator app", "totp": true})
 			return
 		}
-		if !totpValid(s.st.TOTPSecret(u.ID), in.Code) {
+		if !s.totpAccept(u.ID, in.Code) {
 			s.fails.fail("user:" + strings.ToLower(u.Username))
 			err = errors.New("that code is not right")
 		}
@@ -292,6 +300,10 @@ func (s *Server) cOwnPassword(c *consoleCtx) {
 			c.fail(http.StatusForbidden, "current password is wrong")
 			return
 		}
+	}
+	if c.user.MustChangePassword && in.New == in.Current {
+		c.fail(http.StatusBadRequest, "choose a password of your own, not the one the account was created with")
+		return
 	}
 	if c.err(s.st.SetPassword(c.user.ID, in.New, c.tok)) {
 		return
@@ -1032,12 +1044,13 @@ func (s *Server) cOIDCPut(c *consoleCtx) {
 		ClientSecret string `json:"client_secret"`
 		Scopes       string
 		AutoRegister bool `json:"auto_register"`
+		LinkByEmail  bool `json:"link_by_email"`
 	}
 	if !c.body(&in) {
 		return
 	}
 	p := &store.OIDCProvider{Name: strings.ToLower(strings.TrimSpace(c.r.PathValue("name"))), Issuer: strings.TrimRight(strings.TrimSpace(in.Issuer), "/"),
-		ClientID: strings.TrimSpace(in.ClientID), ClientSecret: strings.TrimSpace(in.ClientSecret), Scopes: strings.TrimSpace(in.Scopes), AutoRegister: in.AutoRegister}
+		ClientID: strings.TrimSpace(in.ClientID), ClientSecret: strings.TrimSpace(in.ClientSecret), Scopes: strings.TrimSpace(in.Scopes), AutoRegister: in.AutoRegister, LinkByEmail: in.LinkByEmail}
 	if p.Scopes == "" && isGitHub(p) {
 		p.Scopes = "read:user user:email"
 	}

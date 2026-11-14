@@ -507,7 +507,9 @@ func TestTwoStepSignIn(t *testing.T) {
 		t.Fatalf("RFC 6238 test vector: %s", code) // SHA-1, T=59 -> 94287082
 	}
 	_ = h.st.SetTOTP(u.ID, secret)
-	now, _ := totpAt(secret, time.Now())
+	base := time.Now()
+	now, _ := totpAt(secret, base)
+	next, _ := totpAt(secret, base.Add(30*time.Second)) // a code works once; the console below needs the following one
 
 	// Step one: the password alone yields a challenge, not a token.
 	_, raw, v := h.call("POST", "/api/login", "", map[string]any{"username": "ada", "password": "correct horse", "id": "1", "uuid": "u", "type": "account"})
@@ -541,7 +543,7 @@ func TestTwoStepSignIn(t *testing.T) {
 	if code, _ := post(map[string]string{"username": "ada", "password": "correct horse", "code": "111111"}); code != 401 {
 		t.Fatal("console accepted a wrong code")
 	}
-	if code, raw := post(map[string]string{"username": "ada", "password": "correct horse", "code": now}); code != 200 {
+	if code, raw := post(map[string]string{"username": "ada", "password": "correct horse", "code": next}); code != 200 {
 		t.Fatalf("console refused the right code: %s", raw)
 	}
 }

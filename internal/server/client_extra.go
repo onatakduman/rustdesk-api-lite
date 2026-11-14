@@ -39,7 +39,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		Conns      []int64 `json:"conns"`
 		ModifiedAt int64   `json:"modified_at"`
 	}
-	if err := readJSON(w, r, &in, bodySmall); err != nil || !s.reporter(in.ID, in.UUID) {
+	if err := readJSON(w, r, &in, bodySmall); err != nil || !s.reporter(in.ID, in.UUID) || !s.mayAdd(r, in.ID) {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
@@ -142,8 +142,8 @@ func (s *Server) handleSysinfo(w http.ResponseWriter, r *http.Request) {
 	}
 	str := func(k string) string { v, _ := in[k].(string); return v }
 	id, uuid := str("id"), str("uuid")
-	if !s.reporter(id, uuid) {
-		plain(w, "ID_NOT_FOUND")
+	if !s.reporter(id, uuid) || !s.mayAdd(r, id) {
+		plain(w, "ID_NOT_FOUND") // the client sends its system information again later
 		return
 	}
 	d := &store.Device{ID: id, UUID: uuid, Hostname: str("hostname"), Username: str("username"), OS: str("os"), CPU: str("cpu"), Memory: str("memory"), Version: str("version")}
@@ -264,8 +264,31 @@ func (s *Server) handleAuditNote(c *clientCtx) {
 		c.fail(http.StatusNotFound, "Not found")
 		return
 	}
+	_, peer, err := s.st.ConnPeer(row)
+	if c.err(err) {
+		return
+	}
+	if !c.user.IsAdmin && !s.openedBy(c, peer) {
+		c.fail(http.StatusForbidden, "This session was not opened from your device")
+		return
+	}
 	if c.err(s.st.SetConnNote(row, in.Note)) {
 		return
 	}
 	c.ok()
+}
+
+// openedBy tells whether a recorded session was opened from the caller's side:
+// from the device this app is signed in on, or from another device that is
+// assigned to the caller. peer is the RustDesk id the controlled device reported.
+func (s *Server) openedBy(c *clientCtx, peer string) bool {
+	id, _ := splitPeerID(peer)
+	if id == "" {
+		return false
+	}
+	if own, _ := splitPeerID(c.sess.DeviceID); own != "" && own == id {
+		return true
+	}
+	d, err := s.st.Device(id)
+	return err == nil && d.UserID != 0 && d.UserID == c.user.ID
 }

@@ -105,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/
 
 ```
 status=installed
-version=v0.1.2
+version=v0.1.3
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -115,7 +115,7 @@ admin_password=…
 ```
 
 `status` is `installed`, `upgraded`, `uninstalled` or `failed`, and the exit
-code is non-zero on failure. `RDL_VERSION=v0.1.2` pins a release and
+code is non-zero on failure. `RDL_VERSION=v0.1.3` pins a release and
 `RDL_LISTEN` moves the port. [AGENTS.md](AGENTS.md) has the whole procedure
 for an agent, from picking the method to handing over the client configuration.
 
@@ -130,14 +130,14 @@ docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 
 Every release is published as an image for x86-64 and ARM64, here on GitHub's
 registry and on Docker Hub as `iamonat/rustdesk-api-lite`. `latest` is the
-newest release; a tag such as `:v0.1.2` pins one. To upgrade, pull the image
+newest release; a tag such as `:v0.1.3` pins one. To upgrade, pull the image
 and create the container again; the data stays in the volume. The `RDL_*`
 settings below work as `-e` options.
 
 To build the image yourself instead:
 
 ```sh
-docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.2
+docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.3
 ```
 
 ### From a release archive
@@ -162,7 +162,9 @@ go build -o rustdesk-api-lite .
 
 1. The first start creates the account `admin` and prints its password once.
    The install script shows it; otherwise look in the log
-   (`journalctl -u rustdesk-api-lite | grep 'First start'`).
+   (`journalctl -u rustdesk-api-lite | grep 'First start'`). Because that
+   password stays in the log, it only opens the console, which asks for a
+   password of your own before anything else.
 2. Put a reverse proxy with HTTPS in front of the server (below).
 3. Sign in and enter your ID server, relay server and public key under
    Settings, unless the install already set them.
@@ -175,12 +177,33 @@ go build -o rustdesk-api-lite .
 
 ```
 rustdesk.example.com {
+    header Strict-Transport-Security "max-age=31536000"
     reverse_proxy 127.0.0.1:21114
 }
 ```
 
 Run with `-trust-proxy` (or `RDL_TRUST_PROXY=1`, which the systemd unit and
-the Docker image set) so the real client address is used for throttling and logs.
+the Docker image set) so the real client address is used for throttling and
+logs. The server takes the address its own proxy reports and ignores what a
+client claims; Caddy as above does that.
+
+With Cloudflare's proxy in front of Caddy, Caddy would report Cloudflare's
+address for everyone, and one person's failed sign-ins would lock out all.
+Pass on the visitor's address instead, and let only Cloudflare reach the
+server (firewall), since anyone else could send that header too:
+
+```
+rustdesk.example.com {
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy 127.0.0.1:21114 {
+        header_up X-Forwarded-For {header.CF-Connecting-IP}
+    }
+}
+```
+
+Cloudflare's proxy carries web traffic only. `hbbs` and `hbbr` need their own
+ports reachable directly, so behind Cloudflare the API gets a host name of
+its own.
 
 ### Options
 
@@ -227,16 +250,38 @@ The data stays in `/var/lib/rustdesk-api-lite` and the settings in
 
 ## Security notes
 
+- Serve it over HTTPS. The RustDesk app sends the session token on every call.
 - Passwords are stored as bcrypt hashes, session tokens as SHA-256 hashes.
-- Sign-in is throttled per address and per account.
+- Sign-in is throttled per address and per account: eight wrong passwords
+  block further tries for ten minutes. Someone who knows a user name can keep
+  that account from signing in with its password this way; sessions that are
+  open and sign-in through a provider are not affected.
+- A code of two-step sign-in works once. Sign-in through a provider does not
+  ask for it: the provider is trusted to have checked the person.
+- Sign-in providers decide who gets in, so add only ones you trust. A person
+  is signed in to the account their provider identity is linked to. Finding
+  the account by verified e-mail address instead is an option per provider,
+  off for new providers, and never applies to administrators, who link their
+  sign-in themselves under Settings.
+- When a RustDesk app starts a sign-in through a provider, the browser page
+  first names the device and asks. Do not continue for a sign-in you did not
+  start: it would sign that device in with your account.
 - The console uses an HttpOnly cookie; changes need a same-origin request.
-- Device reports (heartbeat, system information, audit) are unauthenticated by
+- Device reports (heartbeat, system information, logs) are unauthenticated by
   design of the RustDesk client. A device ID is bound to the first UUID that
-  reports it; reports with another UUID are ignored.
+  reports it; reports with another UUID are ignored. Someone who can reach the
+  server can therefore announce devices that do not exist, or take an ID
+  before its device reports for the first time (forget the device in the
+  console to free it). Unknown devices are added at no more than 100 an hour
+  from one address and 2000 an hour in total; a large roll-out from one
+  address takes correspondingly longer to show up.
+- The logs are what the devices report about themselves. A device that cannot
+  reach the server, or runs a modified client, leaves no record, so they
+  support an audit and do not replace one. The note on a session can be
+  written by the person who opened it and by administrators.
 - For the online state the server connects to the ID servers named in
   address-book entries. Only public addresses are asked, apart from your own
   ID server, and the lookups can be switched off in the settings.
-- Serve it over HTTPS. The RustDesk app sends the session token on every call.
 
 ## Development
 

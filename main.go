@@ -139,10 +139,15 @@ func serve(st *store.Store, listen string, trust bool) {
 	}
 	if st.CountUsers() == 0 {
 		pw := store.RandomToken(12)
-		if err := st.CreateUser(&store.User{Username: "admin", IsAdmin: true}, pw, ""); err != nil {
+		first := &store.User{Username: "admin", IsAdmin: true}
+		if err := st.CreateUser(first, pw, ""); err != nil {
 			log.Fatalf("create first account: %v", err)
 		}
-		fmt.Printf("\n  First start: created the account \"admin\" with password  %s\n  Sign in and change it. This is shown only once.\n\n", pw)
+		// This password ends up in the service log, so it only opens the console, and only to be replaced.
+		if err := st.SetMustChangePassword(first.ID, true); err != nil {
+			log.Fatalf("create first account: %v", err)
+		}
+		fmt.Printf("\n  First start: created the account \"admin\" with password  %s\n  Sign in to the console; it asks for a password of your own before anything else. This is shown only once.\n\n", pw)
 	}
 	web, err := fs.Sub(webFiles, "web")
 	if err != nil {

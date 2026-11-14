@@ -42,11 +42,13 @@ type Server struct {
 	kicks  *kickList
 	tfa    *challenges
 	online *onlineCache
+	newDev *regLimiter
 }
 
 // New builds the application.
 func New(st *store.Store, cfg Config) *Server {
-	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}, online: newOnlineCache()}
+	s := &Server{st: st, cfg: cfg, mux: http.NewServeMux(), fails: newFailCounter(), oidc: newOIDCCache(), nonces: &nonceSet{m: map[string]time.Time{}}, kicks: &kickList{m: map[string][]int64{}}, tfa: &challenges{m: map[string]*challenge{}}, online: newOnlineCache(),
+		newDev: &regLimiter{perAddr: newDevicesPerAddr, total: newDevicesTotal, byAddr: map[string][]time.Time{}}}
 	// For monitors, install scripts and agents: answers once the server takes requests.
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": Version})
@@ -62,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "DENY") // no page of this server belongs in a frame
 		s.mux.ServeHTTP(w, r)
 	})
 }
@@ -271,6 +274,54 @@ func EncodeClientConfig(idServer, relayServer, apiServer, key string) string {
 		enc[i], enc[j] = enc[j], enc[i]
 	}
 	return string(enc)
+}
+
+// Device reports carry no credentials, so anyone can announce device ids that
+// do not exist. regLimiter bounds how many unknown devices such reports may add
+// per hour, for one address and in total. A real device over the limit is added
+// by one of its later reports; devices that are already known are never limited.
+const (
+	newDevicesPerAddr = 100
+	newDevicesTotal   = 2000
+	newDevicesWindow  = time.Hour
+)
+
+type regLimiter struct {
+	mu             sync.Mutex
+	perAddr, total int
+	byAddr         map[string][]time.Time
+	all            []time.Time
+}
+
+func after(ts []time.Time, cut time.Time) []time.Time {
+	i := 0
+	for i < len(ts) && !ts[i].After(cut) {
+		i++
+	}
+	return ts[i:]
+}
+
+// allow counts one new device for the address, unless a limit is reached.
+func (l *regLimiter) allow(addr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	cut := now.Add(-newDevicesWindow)
+	l.all = after(l.all, cut)
+	mine := after(l.byAddr[addr], cut)
+	if len(l.all) >= l.total || len(mine) >= l.perAddr {
+		return false
+	}
+	l.all = append(l.all, now)
+	l.byAddr[addr] = append(mine, now)
+	if len(l.byAddr) > 2*l.total { // forget addresses whose additions have aged out
+		for k, v := range l.byAddr {
+			if len(after(v, cut)) == 0 {
+				delete(l.byAddr, k)
+			}
+		}
+	}
+	return true
 }
 
 // nonceSet remembers recently seen report nonces so that retried reports are

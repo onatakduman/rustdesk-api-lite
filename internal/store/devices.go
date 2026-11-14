@@ -249,11 +249,14 @@ type OIDCProvider struct {
 	ClientSecret string `json:"-"`
 	Scopes       string `json:"scopes"`
 	AutoRegister bool   `json:"auto_register"`
+	// LinkByEmail signs a person in to the existing account that has the same
+	// verified e-mail address. Only for providers trusted to verify addresses.
+	LinkByEmail bool `json:"link_by_email"`
 }
 
 // OIDCProviders lists the configured providers.
 func (s *Store) OIDCProviders() ([]*OIDCProvider, error) {
-	rows, err := s.db.Query("SELECT name, issuer, client_id, client_secret, scopes, auto_register FROM oidc_providers ORDER BY name")
+	rows, err := s.db.Query("SELECT name, issuer, client_id, client_secret, scopes, auto_register, link_by_email FROM oidc_providers ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +264,7 @@ func (s *Store) OIDCProviders() ([]*OIDCProvider, error) {
 	out := []*OIDCProvider{}
 	for rows.Next() {
 		p := &OIDCProvider{}
-		if err := rows.Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister); err != nil {
+		if err := rows.Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister, &p.LinkByEmail); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -272,8 +275,8 @@ func (s *Store) OIDCProviders() ([]*OIDCProvider, error) {
 // OIDCProvider loads one provider.
 func (s *Store) OIDCProvider(name string) (*OIDCProvider, error) {
 	p := &OIDCProvider{}
-	err := s.db.QueryRow("SELECT name, issuer, client_id, client_secret, scopes, auto_register FROM oidc_providers WHERE name = ?", name).
-		Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister)
+	err := s.db.QueryRow("SELECT name, issuer, client_id, client_secret, scopes, auto_register, link_by_email FROM oidc_providers WHERE name = ?", name).
+		Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister, &p.LinkByEmail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -288,11 +291,11 @@ func (s *Store) SaveOIDCProvider(p *OIDCProvider) error {
 	if p.Scopes == "" {
 		p.Scopes = "openid email profile"
 	}
-	_, err := s.db.Exec(`INSERT INTO oidc_providers(name, issuer, client_id, client_secret, scopes, auto_register) VALUES(?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO oidc_providers(name, issuer, client_id, client_secret, scopes, auto_register, link_by_email) VALUES(?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET issuer = excluded.issuer, client_id = excluded.client_id,
 			client_secret = CASE WHEN excluded.client_secret <> '' THEN excluded.client_secret ELSE client_secret END,
-			scopes = excluded.scopes, auto_register = excluded.auto_register`,
-		p.Name, p.Issuer, p.ClientID, p.ClientSecret, p.Scopes, p.AutoRegister)
+			scopes = excluded.scopes, auto_register = excluded.auto_register, link_by_email = excluded.link_by_email`,
+		p.Name, p.Issuer, p.ClientID, p.ClientSecret, p.Scopes, p.AutoRegister, p.LinkByEmail)
 	return err
 }
 

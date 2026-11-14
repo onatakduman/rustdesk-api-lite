@@ -71,18 +71,19 @@ type clientCtx struct {
 	r    *http.Request
 	user *store.User
 	tok  string
+	sess *store.Token // the session behind tok: which device the app is signed in on
 }
 
 // client wraps a handler that needs a signed-in RustDesk client.
 func (s *Server) client(h func(c *clientCtx)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := bearer(r)
-		u, _, err := s.st.UserByToken(tok)
+		u, t, err := s.st.UserByToken(tok)
 		if err != nil {
 			fail(w, http.StatusUnauthorized, "Unauthorized")
 			return
 		}
-		h(&clientCtx{w: w, r: r, user: u, tok: tok})
+		h(&clientCtx{w: w, r: r, user: u, tok: tok, sess: t})
 	}
 }
 
@@ -183,7 +184,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if code == "" {
 			code = in.Code
 		}
-		ok := totpValid(s.st.TOTPSecret(u.ID), code)
+		ok := s.totpAccept(u.ID, code)
 		s.tfa.settle(in.Secret, ok)
 		entry.UserID, entry.Username, entry.OK = u.ID, u.Username, ok
 		s.st.AddLoginLog(entry)
@@ -209,6 +210,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.st.AddLoginLog(entry)
 		// 200 with an error field: the client shows the message as is.
 		writeJSON(w, http.StatusOK, map[string]string{"error": err.Error()})
+		return
+	}
+	if u.MustChangePassword {
+		// The account of the first start: its printed password opens the console only, to be replaced there.
+		s.st.AddLoginLog(entry)
+		writeJSON(w, http.StatusOK, map[string]string{"error": "Change the password of this account in the web console first"})
 		return
 	}
 	if u.HasTOTP {
@@ -648,6 +655,15 @@ func (s *Server) reporter(id, uuid string) bool {
 	}
 	d, err := s.st.Device(id)
 	return err != nil || d.UUID == "" || d.UUID == uuid
+}
+
+// mayAdd tells whether a report may add the device it names: a known device
+// always, an unknown one while the limits for new devices allow it.
+func (s *Server) mayAdd(r *http.Request, id string) bool {
+	if _, err := s.st.Device(id); err == nil {
+		return true
+	}
+	return s.newDev.allow(s.clientIP(r))
 }
 
 func plain(w http.ResponseWriter, s string) {

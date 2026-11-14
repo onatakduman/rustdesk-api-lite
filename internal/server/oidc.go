@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,54 +81,118 @@ func (c *oidcCache) discover(p *store.OIDCProvider) (*oidcMeta, error) {
 
 func (s *Server) oidcRoutes() {
 	s.mux.HandleFunc("GET /oidc/login", s.handleOIDCLogin)
+	s.mux.HandleFunc("POST /oidc/login", s.handleOIDCConfirm)
 	s.mux.HandleFunc("GET "+oidcCallbackPath, s.handleOIDCCallback)
 	// Alias used by lejianwen/rustdesk-api, so redirect URIs registered for it keep working.
 	s.mux.HandleFunc("GET /api/oauth/callback", s.handleOIDCCallback)
 }
 
+const oidcPageHead = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%s</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f4f5f7;color:#1c1e21}
+main{background:#fff;padding:32px 40px;border-radius:12px;max-width:420px;box-shadow:0 1px 3px rgba(0,0,0,.12)}h1{font-size:20px;margin:0 0 8px}
+button{font:inherit;padding:8px 20px;border:0;border-radius:8px;background:#0071ff;color:#fff;cursor:pointer}
+@media(prefers-color-scheme:dark){body{background:#18191e;color:#e6e6e6}main{background:#24252b}}</style>
+`
+
 func oidcPage(w http.ResponseWriter, status int, title, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f4f5f7;color:#1c1e21}
-main{background:#fff;padding:32px 40px;border-radius:12px;max-width:420px;box-shadow:0 1px 3px rgba(0,0,0,.12)}h1{font-size:20px;margin:0 0 8px}
-@media(prefers-color-scheme:dark){body{background:#18191e;color:#e6e6e6}main{background:#24252b}}</style>
-<main><h1>%s</h1><p>%s</p></main>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(msg))
+	fmt.Fprintf(w, oidcPageHead+`<main><h1>%s</h1><p>%s</p></main>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(msg))
+}
+
+// oidcConfirm asks the person at the browser whether the RustDesk app that
+// started this sign-in is theirs. Without the question a link from someone
+// else would sign that person's app in with the visitor's account.
+func oidcConfirm(w http.ResponseWriter, sess *store.OIDCSession) {
+	device := sess.DeviceName
+	if device == "" {
+		device = "an unnamed device"
+	}
+	if sess.DeviceID != "" {
+		device += " (ID " + sess.DeviceID + ")"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprintf(w, oidcPageHead+`<main><h1>Sign in to RustDesk</h1>
+<p>The RustDesk app on <b>%s</b> asks to be signed in with your %s account.</p>
+<p>Continue only if you started this yourself, in that app, a moment ago. Otherwise close this page.</p>
+<form method="post" action="/oidc/login"><input type="hidden" name="code" value="%s"><button type="submit">Continue</button></form></main>`,
+		"Sign in to RustDesk", html.EscapeString(device), html.EscapeString(sess.Provider), html.EscapeString(sess.Code))
+}
+
+// oidcCookie ties a sign-in to the browser that started it: it holds the
+// state value and has to come back with the provider's answer.
+const oidcCookie = "rdl_oidc"
+
+func (s *Server) setOIDCCookie(w http.ResponseWriter, r *http.Request, state string) {
+	ck := &http.Cookie{Name: oidcCookie, Value: state, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.isHTTPS(r), MaxAge: store.OIDCSessionTTL}
+	if state == "" {
+		ck.MaxAge = -1
+	}
+	http.SetCookie(w, ck)
 }
 
 // handleOIDCLogin sends the browser to the provider. It is reached either with
 // ?code= (a sign-in started by a RustDesk client) or ?provider= (the console).
 func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	var sess *store.OIDCSession
 	if code := q.Get("code"); code != "" {
-		var err error
-		if sess, err = s.st.OIDCSessionByCode(code); err != nil || sess.Result != "" {
+		sess, err := s.st.OIDCSessionByCode(code)
+		if err != nil || sess.Result != "" {
 			oidcPage(w, http.StatusBadRequest, "Sign-in expired", "Start the sign-in again from RustDesk.")
 			return
 		}
-	} else {
-		sess = &store.OIDCSession{Provider: q.Get("provider"), Purpose: "console"}
-		if q.Get("link") == "1" {
-			// Add this sign-in to the account that is signed in to the console.
-			u, _ := s.consoleUser(r)
-			if u == nil {
-				oidcPage(w, http.StatusUnauthorized, "Sign in first", "Sign in to the console, then link the provider from Settings.")
-				return
-			}
-			sess.Purpose = "link:" + strconv.FormatInt(u.ID, 10)
-		}
-		if _, err := s.st.OIDCProvider(sess.Provider); err != nil {
-			oidcPage(w, http.StatusNotFound, "Unknown provider", "This sign-in provider is not configured.")
+		oidcConfirm(w, sess)
+		return
+	}
+	sess := &store.OIDCSession{Provider: q.Get("provider"), Purpose: "console"}
+	if q.Get("link") == "1" {
+		// Add this sign-in to the account that is signed in to the console.
+		u, _ := s.consoleUser(r)
+		if u == nil || u.MustChangePassword {
+			oidcPage(w, http.StatusUnauthorized, "Sign in first", "Sign in to the console, then link the provider from Settings.")
 			return
 		}
-		if err := s.st.NewOIDCSession(sess); err != nil {
-			oidcPage(w, http.StatusInternalServerError, "Sign-in failed", "Could not start the sign-in.")
+		sess.Purpose = "link:" + strconv.FormatInt(u.ID, 10)
+	}
+	if _, err := s.st.OIDCProvider(sess.Provider); err != nil {
+		oidcPage(w, http.StatusNotFound, "Unknown provider", "This sign-in provider is not configured.")
+		return
+	}
+	if err := s.st.NewOIDCSession(sess); err != nil {
+		oidcPage(w, http.StatusInternalServerError, "Sign-in failed", "Could not start the sign-in.")
+		return
+	}
+	s.oidcRedirect(w, r, sess, http.StatusFound)
+}
+
+// handleOIDCConfirm continues an app's sign-in after the person agreed on the
+// page oidcConfirm showed. Only that page may send the form.
+func (s *Server) handleOIDCConfirm(w http.ResponseWriter, r *http.Request) {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		oidcPage(w, http.StatusForbidden, "Sign-in not started", "Open the sign-in from RustDesk again.")
+		return
+	}
+	if o := r.Header.Get("Origin"); o != "" {
+		if u, err := url.Parse(o); err != nil || !strings.EqualFold(u.Host, r.Host) {
+			oidcPage(w, http.StatusForbidden, "Sign-in not started", "Open the sign-in from RustDesk again.")
 			return
 		}
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	sess, err := s.st.OIDCSessionByCode(r.PostFormValue("code"))
+	if err != nil || sess.Result != "" || sess.Purpose != "client" {
+		oidcPage(w, http.StatusBadRequest, "Sign-in expired", "Start the sign-in again from RustDesk.")
+		return
+	}
+	s.oidcRedirect(w, r, sess, http.StatusSeeOther)
+}
+
+// oidcRedirect sends the browser to the provider and remembers, in a cookie,
+// that this browser is the one the answer has to come back to.
+func (s *Server) oidcRedirect(w http.ResponseWriter, r *http.Request, sess *store.OIDCSession, status int) {
 	p, err := s.st.OIDCProvider(sess.Provider)
 	if err != nil {
 		oidcPage(w, http.StatusNotFound, "Unknown provider", "This sign-in provider is not configured.")
@@ -151,7 +216,8 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	v.Set("scope", p.Scopes)
 	v.Set("state", sess.State)
 	u.RawQuery = v.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	s.setOIDCCookie(w, r, sess.State)
+	http.Redirect(w, r, u.String(), status)
 }
 
 type oidcClaims struct {
@@ -263,8 +329,11 @@ func githubClaims(r *http.Request, token string) (*oidcClaims, error) {
 var usernameUnsafe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 // oidcUser maps provider claims to a local user: an already linked identity,
-// else an existing account with the same verified e-mail, else a new account
-// when the provider allows self-registration.
+// else, when the provider is trusted with it, an existing account with the
+// same verified e-mail, else a new account when the provider allows
+// self-registration. Administrators are never found by e-mail: a provider
+// that vouches for the wrong address must not hand out the whole server, so
+// they link their sign-in themselves, signed in, from Settings.
 func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, error) {
 	u, err := s.st.UserByIdentity(p.Name, c.Sub)
 	if err == nil {
@@ -286,12 +355,15 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 				if cand.Disabled {
 					return nil, errors.New("this account is disabled")
 				}
+				if cand.IsAdmin || !p.LinkByEmail {
+					return nil, errors.New("this sign-in is not linked to your account yet; sign in with your password and link it under Settings")
+				}
 				return cand, s.st.LinkIdentity(p.Name, c.Sub, cand.ID, c.Email)
 			}
 		}
 	}
 	if !p.AutoRegister {
-		return nil, errors.New("no account is linked to this sign-in; ask an administrator to create one with your e-mail address")
+		return nil, errors.New("no account is linked to this sign-in; ask an administrator for an account, then link this sign-in under Settings")
 	}
 	base := c.PreferredUsername
 	if base == "" {
@@ -301,7 +373,12 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 	if base == "" {
 		base = "user"
 	}
-	nu := &store.User{Email: c.Email, DisplayName: c.Name}
+	nu := &store.User{DisplayName: c.Name}
+	if c.verified() {
+		// An address nobody verified is not kept: accounts are found by their
+		// address, and a stranger must not be able to claim someone else's.
+		nu.Email = c.Email
+	}
 	for i := 0; i < 50; i++ {
 		nu.Username = base
 		if i > 0 {
@@ -321,6 +398,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		oidcPage(w, http.StatusBadRequest, "Sign-in expired", "Start the sign-in again.")
 		return
 	}
+	if ck, _ := r.Cookie(oidcCookie); ck == nil || subtle.ConstantTimeCompare([]byte(ck.Value), []byte(sess.State)) != 1 {
+		// Someone else's finished sign-in, sent here as a link, or two sign-ins open at once.
+		oidcPage(w, http.StatusBadRequest, "Sign-in not completed", "This sign-in was not started in this browser. Start it again.")
+		return
+	}
+	s.setOIDCCookie(w, r, "")
 	finish := func(u *store.User, err error) {
 		if err != nil {
 			log.Printf("oidc %s: %v", sess.Provider, err)

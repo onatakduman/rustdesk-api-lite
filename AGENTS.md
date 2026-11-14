@@ -96,4 +96,5 @@ gets an account.
 - Code, comments and commit messages are in English.
 - A release is a pushed tag `vX.Y.Z` plus a `## vX.Y.Z` section in
   `CHANGELOG.md`; the workflow builds and publishes the archives and the
-  Docker image (`ghcr.io/onatakduman/rustdesk-api-lite`, x86-64 and ARM64).
+  Docker image (`ghcr.io/onatakduman/rustdesk-api-lite` and `iamonat/rustdesk-api-lite`
+  on Docker Hub, x86-64 and ARM64).

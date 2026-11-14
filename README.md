@@ -128,7 +128,8 @@ docker run -d --name rustdesk-api-lite --restart unless-stopped \
 docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 ```
 
-Every release is published as an image for x86-64 and ARM64. `latest` is the
+Every release is published as an image for x86-64 and ARM64, here on GitHub's
+registry and on Docker Hub as `iamonat/rustdesk-api-lite`. `latest` is the
 newest release; a tag such as `:v0.1.2` pins one. To upgrade, pull the image
 and create the container again; the data stays in the volume. The `RDL_*`
 settings below work as `-e` options.

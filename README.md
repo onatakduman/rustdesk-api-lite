@@ -26,6 +26,12 @@ Node, no external database.
 - **Logs**: who connected to which device and when (with the note written at
   the end of a session), file transfers, sign-ins, and the security alarms
   devices report (blocked addresses, repeated failed attempts).
+- **User groups**: in a shared group the members see each other's devices in
+  the RustDesk app; an address book can be shared with a person or a whole group.
+- **Batch work**: select several devices or entries to add them to a book,
+  tag, copy, remove or forget them; export a book as CSV.
+- **Server commands**: send the administration commands of hbbs and hbbr
+  (relay list, block lists, bandwidth limits, …) from the console when they run on the same machine.
 - **API tokens** for scripts and for `rustdesk --assign --token …`.
 - **Enrolment**: custom clients can place themselves under an owner, a group
   and a shared address book through their `preset-*` options (off by default).

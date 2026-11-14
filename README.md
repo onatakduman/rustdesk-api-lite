@@ -14,15 +14,21 @@ Node, no external database.
 
 ## What it does
 
-- **Sign-in from the RustDesk app** with a password or an OpenID Connect
-  provider (Google, any standard issuer).
+- **Sign-in from the RustDesk app** with a password, an authenticator code
+  (two-step sign-in) or a provider: any OpenID Connect issuer (Google, …) and GitHub.
 - **Address books**: a personal one per user plus shared ones with
-  view / edit / full-control rights, tags with colours, aliases and notes.
-  Works with the current RustDesk clients and with the legacy single-blob
-  protocol of old ones.
+  view / edit / full-control rights, tags with colours, aliases, notes and a
+  default password per shared book. Works with the current RustDesk clients
+  and with the legacy single-blob protocol of old ones.
 - **Devices**: every installation that points at this server shows up with
-  host name, OS, version, owner and online state.
-- **Logs**: who connected to which device and when, file transfers.
+  host name, OS, version, owner, group and online state. An administrator can
+  set owner and group, end a running session and push client options to all devices.
+- **Logs**: who connected to which device and when (with the note written at
+  the end of a session), file transfers, sign-ins, and the security alarms
+  devices report (blocked addresses, repeated failed attempts).
+- **API tokens** for scripts and for `rustdesk --assign --token …`.
+- **Enrolment**: custom clients can place themselves under an owner, a group
+  and a shared address book through their `preset-*` options (off by default).
 - **Console** for all of the above, usable on a phone, in English and Turkish.
 - **Entries on other servers**: an address-book entry can carry its own server
   and key (`123456789@host?key=…`); the console edits these as separate fields
@@ -32,9 +38,9 @@ Node, no external database.
   shares, devices, the connection log and the live sessions, so signed-in
   clients stay signed in.
 
-Not included: the RustDesk web client, session recording, device strategies,
-LDAP, two-factor codes. See `docs/client-api-contract.md` for the full list of
-what the client can call and what this server answers.
+Not included: session recording, LDAP, e-mail verification codes, fixed-ID
+deployment (`rustdesk --deploy`, needs the rendezvous server's cooperation).
+See `docs/client-api-contract.md` for everything the client can call.
 
 ## Quick start
 

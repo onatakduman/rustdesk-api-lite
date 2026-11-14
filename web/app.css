@@ -185,6 +185,8 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 .tagpick label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .tagpick label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: #1d2129; color: #fff; padding: 9px 16px; border-radius: 8px; z-index: 50; max-width: calc(100vw - 32px); }
+.pager { margin-top: 12px; }
+.hint { margin: -6px 0 12px 24px; font-size: 13px; }
 .copybox { display: flex; gap: 8px; align-items: center; background: var(--hover); border-radius: 6px; padding: 8px 10px; }
 
 /* Phones: bottom bar like the mobile client; books become a select */

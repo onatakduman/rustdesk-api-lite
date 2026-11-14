@@ -47,7 +47,21 @@ const TR = {
   'Delete the provider {0}? People linked through it lose that sign-in.': '{0} sağlayıcısı silinsin mi? Onunla bağlı kişiler o girişi kaybeder.',
   'Your password': 'Parolan', 'Current password': 'Mevcut parola', 'Change password': 'Parolayı değiştir', 'Password changed': 'Parola değişti', 'Saved': 'Kaydedildi',
   'Language': 'Dil', 'devices': 'cihaz', 'online': 'çevrimiçi', 'users': 'kullanıcı', 'address book entries': 'adres defteri kaydı', 'Overview': 'Genel durum',
-  'All address books': 'Tüm adres defterleri', 'Version {0}': 'Sürüm {0}', 'More': 'Diğer', 'Sign-in': 'Giriş', 'Role': 'Rol', 'User': 'Kullanıcı',
+  'All address books': 'Tüm adres defterleri',
+  'API tokens': 'API token\'ları', 'New API token': 'Yeni API token\'ı', 'For scripts and for rustdesk --assign. The token is shown once.': 'Betikler ve rustdesk --assign için. Token yalnız bir kez gösterilir.',
+  'Copy the token now. It cannot be shown again.': 'Token\'ı şimdi kopyala. Bir daha gösterilemez.', 'Done': 'Tamam', 'No API token yet': 'Henüz API token\'ı yok', 'Revoke': 'İptal et',
+  'Sign-ins': 'Girişler', 'Alarms': 'Alarmlar', 'Result': 'Sonuç', 'Signed in': 'Giriş yapıldı', 'Refused': 'Reddedildi', 'Method': 'Yöntem', 'Event': 'Olay', 'Details': 'Ayrıntı',
+  'No sign-ins recorded yet': 'Henüz giriş kaydı yok', 'No alarms. Devices report blocked addresses and repeated failed attempts here.': 'Alarm yok. Cihazlar engellenen adresleri ve yinelenen başarısız denemeleri buraya bildirir.',
+  'Blocked by the address whitelist': 'Adres beyaz listesi engelledi', 'More than 30 failed attempts': '30\'dan fazla başarısız deneme', 'Six failed attempts within a minute': 'Bir dakikada altı başarısız deneme',
+  'Repeated attempts from one IPv6 range': 'Tek IPv6 aralığından yinelenen denemeler', 'Terminal sign-in attempts throttled': 'Terminal giriş denemeleri yavaşlatıldı', 'Too many terminal sign-ins at once': 'Aynı anda çok fazla terminal girişi',
+  'Session went beyond its permission': 'Oturum iznini aştı', 'Blocked by the ID whitelist': 'ID beyaz listesi engelledi', 'Security event {0}': 'Güvenlik olayı {0}',
+  'Set owner': 'Sahibini belirle', 'Nobody': 'Kimse', 'Set group': 'Grubu belirle', 'Group': 'Grup', 'Devices with the same group name are listed together in the RustDesk app.': 'Aynı grup adındaki cihazlar RustDesk uygulamasında birlikte listelenir.',
+  'End session {0}': '{0} numaralı oturumu sonlandır', 'The device closes the session within a few seconds.': 'Cihaz oturumu birkaç saniye içinde kapatır.', '{0} active': '{0} etkin',
+  'Devices and logs': 'Cihazlar ve kayıtlar', 'Let installations enrol themselves': 'Kurulumlar kendini kaydedebilsin',
+  'A custom RustDesk client can name its owner, group and address book (preset options). Leave off unless you deploy such clients.': 'Özel bir RustDesk istemcisi sahibini, grubunu ve adres defterini bildirebilir (preset seçenekleri). Böyle istemciler dağıtmıyorsan kapalı bırak.',
+  'Keep logs for (days)': 'Kayıtları sakla (gün)', 'Empty keeps them forever.': 'Boş bırakılırsa süresiz saklanır.',
+  'Options sent to every device': 'Tüm cihazlara gönderilen ayarlar', 'One option per line as name=value. An empty value removes the option on the devices.': 'Her satıra bir ayar: ad=değer. Boş değer, ayarı cihazlarda kaldırır.',
+  'Default password': 'Varsayılan parola', 'Offered by the app for entries of this book that have no password of their own. Stored as plain text.': 'Bu defterde kendi parolası olmayan kayıtlar için uygulamanın kullandığı parola. Düz metin saklanır.', 'Version {0}': 'Sürüm {0}', 'More': 'Diğer', 'Sign-in': 'Giriş', 'Role': 'Rol', 'User': 'Kullanıcı',
 };
 let lang = localStorage.getItem('rdl-lang') || ((navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en');
 function t(s, ...a) {
@@ -164,19 +178,24 @@ function menu(anchor, items) {
   el.querySelector('button')?.focus();
   el.addEventListener('keydown', e => { if (e.key === 'Escape') { el.remove(); anchor.focus(); } });
 }
-// dialog(title, body nodes, onSave(formData) -> may throw, options)
+// dialog(title, body nodes, onSave(formData) -> may throw, options); resolves true when saved.
 function dialog(title, body, onSave, { save = t('Save'), danger = false } = {}) {
   return new Promise(resolve => {
+    let done = false;
+    // Resolve directly instead of waiting for the dialog's "close" event, which
+    // some embedded browsers deliver late or not at all.
+    const finish = ok => { if (done) return; done = true; if (d.open) d.close(); d.remove(); resolve(ok); };
     const err = h('div', { class: 'err', role: 'alert' });
     const submit = h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), type: 'submit' }, save);
     const form = h('form', { method: 'dialog', onsubmit: async e => {
       e.preventDefault();
       submit.disabled = true;
-      try { await onSave(new FormData(form), form); d.close('ok'); } catch (ex) { err.textContent = ex.message; submit.disabled = false; }
+      try { await onSave(new FormData(form), form); finish(true); } catch (ex) { err.textContent = ex.message; submit.disabled = false; }
     } }, h('h2', null, title), h('div', { class: 'body' }, body, err),
-    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => d.close() }, t('Cancel')), submit));
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => finish(false) }, t('Cancel')), submit));
     const d = h('dialog', null, form);
-    d.addEventListener('close', () => { d.remove(); resolve(d.returnValue === 'ok'); });
+    d.addEventListener('cancel', e => { e.preventDefault(); finish(false); });
+    d.addEventListener('close', () => finish(false));
     document.body.append(d);
     d.showModal();
   });
@@ -188,7 +207,7 @@ const text = (name, value = '', extra = {}) => h('input', { type: 'text', name, 
 // ---------- shell ----------
 const NAV = [
   { id: 'books', label: 'Address books' }, { id: 'devices', label: 'Devices' }, { id: 'users', label: 'Users', admin: true },
-  { id: 'sessions', label: 'Sessions' }, { id: 'logs', label: 'Logs', admin: true }, { id: 'settings', label: 'Settings' },
+  { id: 'sessions', label: 'Sessions' }, { id: 'logs', label: 'Logs' }, { id: 'settings', label: 'Settings' },
 ];
 const route = () => { const [view, arg] = location.hash.replace(/^#\/?/, '').split('/'); return { view: view || 'books', arg: arg && decodeURIComponent(arg) }; };
 const go = (view, arg) => { location.hash = '#/' + view + (arg ? '/' + encodeURIComponent(arg) : ''); };
@@ -210,7 +229,7 @@ async function render() {
         h('div', { class: 'grow' }, h('div', { class: 'trunc' }, state.user.display_name || state.user.username), h('div', { class: 'sub muted trunc' }, state.user.is_admin ? t('Administrator') : state.user.email)),
         h('button', { class: 'icon-btn', title: t('Sign out'), 'aria-label': t('Sign out'), onclick: signOut }, icon('out')))),
     main,
-    h('nav', { class: 'tabbar', 'aria-label': 'Main' }, items.filter(n => n.id !== 'sessions' || !state.user.is_admin).map(link))));
+    h('nav', { class: 'tabbar', 'aria-label': 'Main' }, items.filter(n => n.id !== 'sessions').map(link))));
   const views = { books: booksView, devices: devicesView, users: usersView, sessions: sessionsView, logs: logsView, settings: settingsView };
   try { await (views[view] || booksView)(main); } catch (ex) { main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'empty' }, h('b', null, ex.message)))); }
 }
@@ -276,7 +295,9 @@ async function booksView(main) {
   const empty = h('div', { class: 'empty' });
   const peerTile = p => {
     const s = splitId(p.id), tags = (p.tags || []).map(n => data.tags.find(x => x.name === n) || { name: n, color: 0 });
-    const st = s.server ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown';
+    // Entries pinned to this very server are still ours: their state is known.
+    const own = (state.overview?.client.id_server || '').replace(/:\d+$/, '');
+    const st = s.server && s.server.replace(/:\d+$/, '') !== own ? 'unknown' : online.get(s.id) ? 'on' : online.has(s.id) ? '' : 'unknown';
     const art = h('div', { class: 'peer-art' }, platformIcon(p.platform),
       h('div', { class: 'host trunc' }, [p.username, p.hostname].filter(Boolean).join('@') || (s.server || '')),
       h('div', { class: 'tags' }, tags.slice(0, 6).map(tg => { const i = h('i', { title: tg.name }); i.style.background = tagColor(tg); return i; })));
@@ -324,7 +345,7 @@ async function booksView(main) {
       field(t('Color'), h('div', { class: 'swatches' }, PALETTE.map(c => { const i = h('i'); i.style.background = tagColor({ color: c });
         return h('label', null, h('input', { type: 'radio', name: 'color', value: c, checked: (c >>> 0) === (cur >>> 0) }), i); }))),
       tg && h('button', { class: 'btn danger small', type: 'button', onclick: async e => {
-        await api('POST', `/address-books/${book.guid}/tags/delete`, { names: [tg.name] }); ab.tags.delete(tg.name); e.target.closest('dialog').close(); reload();
+        await api('POST', `/address-books/${book.guid}/tags/delete`, { names: [tg.name] }); ab.tags.delete(tg.name); e.target.closest('dialog').querySelector('.actions .btn').click(); reload();
       } }, t('Delete tag'))];
     await dialog(tg ? t('Edit tag') : t('New tag'), body, async f => {
       const name = f.get('name').trim();
@@ -360,8 +381,9 @@ async function booksView(main) {
       async f => { guid = (await api('POST', '/address-books', { name: f.get('name'), note: f.get('note') })).guid; }) && go('books', guid);
   };
   const bookMenu = btn => menu(btn, [
-    book.rule === 3 && !book.personal && { label: t('Rename'), run: async () => { await dialog(t('Rename'), [field(t('Name'), text('name', book.name, { required: true })), field(t('Note'), text('note', book.note))],
-      f => api('PATCH', '/address-books/' + book.guid, { name: f.get('name'), note: f.get('note') })) && reload(); } },
+    book.rule === 3 && !book.personal && { label: t('Rename'), run: async () => { await dialog(t('Rename'), [field(t('Name'), text('name', book.name, { required: true })), field(t('Note'), text('note', book.note)),
+      field(t('Default password'), text('default_password', book.default_password), t('Offered by the app for entries of this book that have no password of their own. Stored as plain text.'))],
+      f => api('PATCH', '/address-books/' + book.guid, { name: f.get('name'), note: f.get('note'), default_password: f.get('default_password') })) && reload(); } },
     book.rule === 3 && !book.personal && { label: t('Share'), run: shareBook },
     canEdit && { label: t('Pin a server on the entries'), run: pinServer },
     canEdit && { label: t('New tag'), run: () => editTag() },
@@ -420,14 +442,23 @@ async function devicesView(main) {
       { label: t('Connect'), run: () => { location.href = 'rustdesk://' + d.id; } },
       { label: t('Copy ID'), run: () => copy(d.id) },
       { label: t('Add to address book'), run: () => addToBook(d) },
+      state.user.is_admin && { label: t('Set owner'), run: async () => {
+        const { users } = await api('GET', '/users');
+        await dialog(t('Set owner'), [field(t('Owner'), h('select', { name: 'owner' }, h('option', { value: 0 }, t('Nobody')), users.map(u => h('option', { value: u.id, selected: u.id === d.user_id }, u.username))))],
+          f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { owner_id: Number(f.get('owner')) })) && render(); } },
+      state.user.is_admin && { label: t('Set group'), run: async () => { await dialog(t('Set group'), [field(t('Group'), text('group', d.group), t('Devices with the same group name are listed together in the RustDesk app.'))],
+        f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { group: f.get('group') })) && render(); } },
       state.user.is_admin && { label: t('Note'), run: async () => { await dialog(t('Note'), [field(t('Note'), h('textarea', { name: 'note' }, d.note))], f => api('PATCH', '/devices/' + encodeURIComponent(d.id), { note: f.get('note') })) && render(); } },
+      ...(state.user.is_admin ? d.conns.map(cid => ({ label: t('End session {0}', cid), danger: true, run: async () => {
+        await api('POST', '/devices/' + encodeURIComponent(d.id) + '/disconnect', { conn_id: cid }); toast(t('The device closes the session within a few seconds.')); } })) : []),
       state.user.is_admin && '-',
       state.user.is_admin && { label: t('Forget'), danger: true, run: async () => { if (await confirmBox(t('Forget {0}? It comes back when it reports again.', d.hostname || fmtId(d.id)), t('Forget'))) { await api('DELETE', '/devices/' + encodeURIComponent(d.id)); render(); } } },
     ]) }, icon('more'));
     const art = h('div', { class: 'peer-art' }, platformIcon(d.os)); art.style.cssText = `background:${peerColor(d.id, platformOf(d.os))};width:40px;height:40px;border-radius:6px;padding:0;flex:none`;
     art.querySelector('svg').style.cssText = 'width:20px;height:20px';
     return h('div', null, art,
-      h('div', { class: 'grow' }, h('div', { class: 'row' }, h('span', { class: 'dot ' + (d.online ? 'on' : '') }), h('b', { class: 'trunc' }, d.hostname || fmtId(d.id)), d.user && h('span', { class: 'chip blue' }, d.user)),
+      h('div', { class: 'grow' }, h('div', { class: 'row' }, h('span', { class: 'dot ' + (d.online ? 'on' : '') }), h('b', { class: 'trunc' }, d.hostname || fmtId(d.id)), d.user && h('span', { class: 'chip blue' }, d.user),
+          d.group && h('span', { class: 'chip' }, d.group), d.conns.length > 0 && h('span', { class: 'chip blue' }, t('{0} active', d.conns.length))),
         h('div', { class: 'sub trunc' }, [fmtId(d.id), d.username, d.os, d.version && 'v' + d.version].filter(Boolean).join(', ')),
         d.note && h('div', { class: 'sub trunc' }, d.note)),
       h('div', { class: 'sub wide-only' }, d.online ? t('Online') : t('Last seen {0}', ago(d.last_seen))), more);
@@ -477,35 +508,57 @@ async function sessionsView(main) {
   const all = state.user.is_admin && localStorage.getItem('rdl-allsessions') === '1';
   const { sessions } = await api('GET', '/sessions' + (all ? '?all=1' : ''));
   const row = s => h('div', null, h('div', { class: 'grow' },
-    h('div', { class: 'row' }, h('b', { class: 'trunc' }, s.kind === 'console' ? t('Web console') : (s.device_name || t('RustDesk app'))), all && h('span', { class: 'chip blue' }, s.username)),
-    h('div', { class: 'sub trunc' }, [s.kind === 'console' ? '' : fmtId(s.device_id), s.kind === 'console' ? '' : s.device_os, s.ip, t('Last used {0}', ago(s.last_used_at))].filter(Boolean).join(', '))),
-  h('button', { class: 'btn small', onclick: async () => { await api('DELETE', '/sessions/' + s.id); render(); } }, t('Sign out')));
+    h('div', { class: 'row' }, h('b', { class: 'trunc' }, s.kind === 'api' ? s.name : s.kind === 'console' ? t('Web console') : (s.device_name || t('RustDesk app'))), all && h('span', { class: 'chip blue' }, s.username)),
+    h('div', { class: 'sub trunc' }, [s.kind === 'client' ? fmtId(s.device_id) : '', s.kind === 'client' ? s.device_os : '', s.ip, t('Last used {0}', ago(s.last_used_at))].filter(Boolean).join(', '))),
+  h('button', { class: 'btn small', onclick: async () => { await api('DELETE', '/sessions/' + s.id); render(); } }, s.kind === 'api' ? t('Revoke') : t('Sign out')));
+  const newToken = async () => {
+    let token;
+    if (!await dialog(t('New API token'), [h('p', { class: 'muted' }, t('For scripts and for rustdesk --assign. The token is shown once.')), h('br'), field(t('Name'), text('name', '', { required: true, autofocus: true }))],
+      async f => { token = (await api('POST', '/tokens', { name: f.get('name') })).token; })) return;
+    await dialog(t('New API token'), [h('p', { class: 'muted' }, t('Copy the token now. It cannot be shown again.')), h('br'),
+      h('div', { class: 'copybox' }, h('span', { class: 'mono grow', style: null }, token), h('button', { class: 'btn small', type: 'button', onclick: () => copy(token) }, t('Copy')))], async () => {}, { save: t('Done') });
+    render();
+  };
+  const apps = sessions.filter(s => s.kind !== 'api'), tokens = sessions.filter(s => s.kind === 'api');
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Signed-in apps and browsers')),
     state.user.is_admin && h('select', { 'aria-label': t('Sessions'), onchange: e => { localStorage.setItem('rdl-allsessions', e.target.value); render(); } },
       h('option', { value: '0', selected: !all }, t('Mine')), h('option', { value: '1', selected: all }, t('Everyone')))),
-  h('div', { class: 'panel list' }, sessions.map(row))));
+  h('div', { class: 'panel list' }, apps.map(row)),
+  h('section', { class: 'panel' }, h('header', null, h('h2', null, t('API tokens')), h('button', { class: 'btn small', onclick: newToken }, t('New API token'))),
+    h('div', { class: 'list' }, tokens.length ? tokens.map(row) : h('div', { class: 'muted' }, t('No API token yet'))))));
   for (const el of main.querySelectorAll('.head select')) el.style.width = 'auto';
+  for (const el of main.querySelectorAll('.copybox .mono')) el.style.wordBreak = 'break-all';
 }
 
 // ---------- logs ----------
 const logs = { tab: 'connections', offset: 0 };
+const ALARMS = { 0: 'Blocked by the address whitelist', 1: 'More than 30 failed attempts', 2: 'Six failed attempts within a minute', 6: 'Repeated attempts from one IPv6 range',
+  7: 'Terminal sign-in attempts throttled', 8: 'Too many terminal sign-ins at once', 9: 'Session went beyond its permission', 10: 'Blocked by the ID whitelist' };
 async function logsView(main) {
-  const size = 50, conn = logs.tab === 'connections';
+  const size = 50, admin = state.user.is_admin;
+  if (!admin) logs.tab = 'logins';
   const { rows, total } = await api('GET', `/logs/${logs.tab}?limit=${size}&offset=${logs.offset}`);
   const tab = (id, label) => h('button', { class: 'btn small' + (logs.tab === id ? ' primary' : ''), onclick: () => { logs.tab = id; logs.offset = 0; render(); } }, t(label));
-  const table = conn
-    ? h('table', null, h('thead', null, h('tr', null, [t('Device'), t('From'), 'IP', t('Started'), t('Duration')].map(x => h('th', null, x)))),
-      h('tbody', null, rows.map(r => h('tr', null, h('td', null, h('div', null, r.device || fmtId(r.device_id)), r.device && h('div', { class: 'sub muted' }, fmtId(r.device_id))),
-        h('td', null, h('div', null, r.peer_name || fmtId(r.peer_id) || '?'), r.peer_name && h('div', { class: 'sub muted' }, fmtId(r.peer_id))), h('td', { class: 'mono' }, r.ip),
-        h('td', null, when(r.started_at)), h('td', null, r.ended_at ? span(r.ended_at - r.started_at) : h('span', { class: 'muted' }, Date.now() / 1000 - r.started_at < 86400 ? t('ongoing') : ''))))))
-    : h('table', null, h('thead', null, h('tr', null, [t('Device'), t('From'), t('Path'), t('Time')].map(x => h('th', null, x)))),
-      h('tbody', null, rows.map(r => h('tr', null, h('td', null, fmtId(r.device_id)), h('td', null, fmtId(r.peer_id)), h('td', { class: 'mono' }, r.path), h('td', null, when(r.at))))));
-  main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Logs')), tab('connections', 'Connections'), tab('files', 'File transfers')),
-    h('div', { class: 'panel' }, rows.length ? h('div', { class: 'scroll-x' }, table) : h('div', { class: 'empty' }, h('b', null, conn ? t('No connections recorded yet') : t('No file transfers recorded yet')))),
-    total > size && h('div', { class: 'row', style: null }, h('button', { class: 'btn small', disabled: logs.offset === 0, onclick: () => { logs.offset = Math.max(0, logs.offset - size); render(); } }, t('Newer')),
-      h('span', { class: 'muted' }, `${logs.offset + 1}–${Math.min(total, logs.offset + size)} / ${total}`),
-      h('button', { class: 'btn small', disabled: logs.offset + size >= total, onclick: () => { logs.offset += size; render(); } }, t('Older')))));
-  for (const el of main.querySelectorAll('.page > .row')) el.style.marginTop = '12px';
+  const two = (a, b) => h('td', null, h('div', null, a), b && h('div', { class: 'sub muted' }, b));
+  const info = raw => { try { const o = JSON.parse(raw); return [o.name, o.id && fmtId(o.id), o.ip].filter(Boolean).join(', '); } catch { return raw; } };
+  const defs = {
+    connections: { empty: 'No connections recorded yet', cols: ['Device', 'From', 'IP', 'Started', 'Duration', 'Note'], row: r => [
+      two(r.device || fmtId(r.device_id), r.device && fmtId(r.device_id)), two(r.peer_name || fmtId(r.peer_id) || '?', r.peer_name && fmtId(r.peer_id)), h('td', { class: 'mono' }, r.ip), h('td', null, when(r.started_at)),
+      h('td', null, r.ended_at ? span(r.ended_at - r.started_at) : h('span', { class: 'muted' }, Date.now() / 1000 - r.started_at < 86400 ? t('ongoing') : '')), h('td', null, r.note)] },
+    files: { empty: 'No file transfers recorded yet', cols: ['Device', 'From', 'Path', 'Time'], row: r => [h('td', null, fmtId(r.device_id)), h('td', null, fmtId(r.peer_id)), h('td', { class: 'mono' }, r.path), h('td', null, when(r.at))] },
+    logins: { empty: 'No sign-ins recorded yet', cols: ['User', 'Result', 'Method', 'Device', 'IP', 'Time'], row: r => [h('td', null, r.username), h('td', null, h('span', { class: 'chip' + (r.ok ? ' blue' : '') }, r.ok ? t('Signed in') : t('Refused'))),
+      h('td', null, r.method), two(r.kind === 'console' ? t('Web console') : (r.device_name || t('RustDesk app')), r.device_id && fmtId(r.device_id)), h('td', { class: 'mono' }, r.ip), h('td', null, when(r.at))] },
+    alarms: { empty: 'No alarms. Devices report blocked addresses and repeated failed attempts here.', cols: ['Device', 'Event', 'Details', 'Time'], row: r => [two(r.device || fmtId(r.device_id), r.device && fmtId(r.device_id)),
+      h('td', null, ALARMS[r.type] ? t(ALARMS[r.type]) : t('Security event {0}', r.type)), h('td', null, info(r.info)), h('td', null, when(r.at))] },
+  };
+  const d = defs[logs.tab];
+  main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Logs')),
+    admin && [tab('connections', 'Connections'), tab('files', 'File transfers'), tab('logins', 'Sign-ins'), tab('alarms', 'Alarms')]),
+  h('div', { class: 'panel' }, rows.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, d.cols.map(x => h('th', null, t(x))))), h('tbody', null, rows.map(r => h('tr', null, d.row(r))))))
+    : h('div', { class: 'empty' }, h('b', null, t(d.empty)))),
+  total > size && h('div', { class: 'row pager' }, h('button', { class: 'btn small', disabled: logs.offset === 0, onclick: () => { logs.offset = Math.max(0, logs.offset - size); render(); } }, t('Newer')),
+    h('span', { class: 'muted' }, `${logs.offset + 1}–${Math.min(total, logs.offset + size)} / ${total}`),
+    h('button', { class: 'btn small', disabled: logs.offset + size >= total, onclick: () => { logs.offset += size; render(); } }, t('Older')))));
 }
 
 // ---------- settings ----------
@@ -531,6 +584,19 @@ async function settingsView(main) {
       field(t('Public address of this console'), h('input', { type: 'url', name: 'public_url', value: cfg.public_url, placeholder: location.origin }), t('Shown to users and used to build the client configuration.')),
       h('button', { class: 'btn primary', type: 'submit' }, t('Save')));
     panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Server'))), form));
+    const dev = h('form', { class: 'pad', onsubmit: async e => {
+      e.preventDefault();
+      const f = new FormData(dev), strategy = {};
+      for (const line of f.get('strategy').split('\n')) { const i = line.indexOf('='); if (i > 0) strategy[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+      try { await api('PUT', '/settings', { allow_presets: f.has('allow_presets'), log_days: f.get('log_days'), strategy }); toast(t('Saved')); } catch (ex) { toast(ex.message); }
+    } },
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'allow_presets', checked: cfg.allow_presets }), t('Let installations enrol themselves')),
+      h('p', { class: 'muted hint' }, t('A custom RustDesk client can name its owner, group and address book (preset options). Leave off unless you deploy such clients.')),
+      field(t('Keep logs for (days)'), text('log_days', cfg.log_days, { inputmode: 'numeric' }), t('Empty keeps them forever.')),
+      field(t('Options sent to every device'), h('textarea', { name: 'strategy', class: 'mono', rows: 4, placeholder: 'enable-lan-discovery=N' }, Object.entries(cfg.strategy).map(([k, v]) => k + '=' + v).join('\n')),
+        t('One option per line as name=value. An empty value removes the option on the devices.')),
+      h('button', { class: 'btn primary', type: 'submit' }, t('Save')));
+    panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Devices and logs'))), dev));
     const editProvider = async p => {
       await dialog(p ? p.name : t('Add provider'), [
         !p && field(t('Name'), text('name', 'google', { required: true, pattern: '[a-z0-9_-]+' })),

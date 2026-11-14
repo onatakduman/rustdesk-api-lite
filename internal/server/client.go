@@ -565,6 +565,15 @@ func (s *Server) handleGroupPeers(c *clientCtx) {
 	if c.err(err) {
 		return
 	}
+	// The app lists devices under their owner, so devices nobody has signed in
+	// on are left out here; the console shows them.
+	owned := ds[:0]
+	for _, d := range ds {
+		if d.UserID != 0 {
+			owned = append(owned, d)
+		}
+	}
+	ds = owned
 	limit, offset := paging(c.r)
 	page := []map[string]any{}
 	for i := offset; i < len(ds) && i < offset+limit; i++ {

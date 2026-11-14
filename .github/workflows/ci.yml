@@ -43,3 +43,10 @@ jobs:
           for i in $(seq 20); do curl -fsS http://127.0.0.1:21114/healthz && break; sleep 1; done
           curl -fsS http://127.0.0.1:21114/healthz | grep -q '"version":"ci"'
           docker logs rdl 2>&1 | grep -q 'First start'
+      - name: Build the ARM64 image and check that the binary in it is ARM64
+        run: |
+          set -euxo pipefail
+          docker build --platform linux/arm64 -t rustdesk-api-lite:arm64 --build-arg VERSION=ci .
+          id=$(docker create rustdesk-api-lite:arm64)
+          docker cp "$id:/rustdesk-api-lite" rdl-arm64
+          file rdl-arm64 | grep -q aarch64

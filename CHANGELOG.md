@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.2
+
+- A published Docker image for x86-64 and ARM64: `ghcr.io/onatakduman/rustdesk-api-lite`,
+  with a tag for every release and `latest` for the newest one. The server itself is
+  unchanged from v0.1.1.
+
 ## v0.1.1
 
 Easier to install, for people, scripts and AI agents.

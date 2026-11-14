@@ -105,7 +105,7 @@ curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/
 
 ```
 status=installed
-version=v0.1.1
+version=v0.1.2
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -115,21 +115,29 @@ admin_password=…
 ```
 
 `status` is `installed`, `upgraded`, `uninstalled` or `failed`, and the exit
-code is non-zero on failure. `RDL_VERSION=v0.1.1` pins a release and
+code is non-zero on failure. `RDL_VERSION=v0.1.2` pins a release and
 `RDL_LISTEN` moves the port. [AGENTS.md](AGENTS.md) has the whole procedure
 for an agent, from picking the method to handing over the client configuration.
 
 ### With Docker
 
 ```sh
-docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.1
 docker run -d --name rustdesk-api-lite --restart unless-stopped \
-  -p 127.0.0.1:21114:21114 -v rustdesk-api-lite:/data rustdesk-api-lite
+  -p 127.0.0.1:21114:21114 -v rustdesk-api-lite:/data \
+  ghcr.io/onatakduman/rustdesk-api-lite
 docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 ```
 
-The image is built from the repository; none is published yet. The `RDL_*`
+Every release is published as an image for x86-64 and ARM64. `latest` is the
+newest release; a tag such as `:v0.1.2` pins one. To upgrade, pull the image
+and create the container again; the data stays in the volume. The `RDL_*`
 settings below work as `-e` options.
+
+To build the image yourself instead:
+
+```sh
+docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.2
+```
 
 ### From a release archive
 

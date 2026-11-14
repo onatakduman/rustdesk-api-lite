@@ -11,7 +11,7 @@ Pick by what the machine is:
 | Machine | Do this |
 |---|---|
 | Linux with systemd, root available | the install script |
-| Anything with Docker | build and run the image |
+| Anything with Docker | run the published image |
 | Anything else | download the release archive and run `rustdesk-api-lite serve` |
 
 ### Install script
@@ -33,7 +33,7 @@ The script exits non-zero on failure and ends with lines to parse:
 
 ```
 status=installed            # or upgraded, uninstalled, failed
-version=v0.1.1
+version=v0.1.2
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -48,11 +48,11 @@ and keeps the data.
 ### Docker
 
 ```sh
-docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.1
 docker run -d --name rustdesk-api-lite --restart unless-stopped \
   -p 127.0.0.1:21114:21114 -v rustdesk-api-lite:/data \
   -e RDL_PUBLIC_URL=https://rustdesk.example.com -e RDL_ID_SERVER=rustdesk.example.com \
-  -e RDL_RELAY_SERVER=rustdesk.example.com -e RDL_KEY=… rustdesk-api-lite
+  -e RDL_RELAY_SERVER=rustdesk.example.com -e RDL_KEY=… \
+  ghcr.io/onatakduman/rustdesk-api-lite
 docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 ```
 
@@ -95,4 +95,5 @@ gets an account.
   answer 200 with an empty body, and nothing may answer 5xx.
 - Code, comments and commit messages are in English.
 - A release is a pushed tag `vX.Y.Z` plus a `## vX.Y.Z` section in
-  `CHANGELOG.md`; the workflow builds and publishes the archives.
+  `CHANGELOG.md`; the workflow builds and publishes the archives and the
+  Docker image (`ghcr.io/onatakduman/rustdesk-api-lite`, x86-64 and ARM64).

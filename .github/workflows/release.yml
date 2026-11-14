@@ -1,4 +1,5 @@
-# A pushed tag such as v0.2.0 becomes a release with archives for every platform.
+# A pushed tag such as v0.2.0 becomes a release with archives for every platform
+# and a Docker image on ghcr.io.
 name: Release
 on:
   push:
@@ -28,3 +29,24 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/SHA256SUMS --title "$GITHUB_REF_NAME" --generate-notes
           fi
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image for x86-64 and ARM64 and push it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          tags="-t $image:$GITHUB_REF_NAME"
+          # A pre-release such as v0.2.0-rc1 does not become "latest".
+          case "$GITHUB_REF_NAME" in *-*) ;; *) tags="$tags -t $image:latest" ;; esac
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx create --use
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            --build-arg VERSION="$GITHUB_REF_NAME" $tags --push .

@@ -10,7 +10,7 @@
 #   ... | sudo sh -s -- uninstall      stops and removes the service; the data stays
 #
 # Environment:
-#   RDL_VERSION       release to install, for example v0.1.1 (default: the latest)
+#   RDL_VERSION       release to install, for example v0.1.2 (default: the latest)
 #   RDL_BINARY        install this local binary instead of downloading a release;
 #                     run from a source checkout, or point RDL_UNIT at the service file
 #   RDL_LISTEN        address to listen on (default 127.0.0.1:21114)

@@ -1,0 +1,35 @@
+# systemd unit for rustdesk-api-lite.
+# Install: copy the binary to /usr/local/bin, this file to /etc/systemd/system/,
+# then: systemctl daemon-reload && systemctl enable --now rustdesk-api-lite
+[Unit]
+Description=RustDesk API Lite (accounts, address books, console)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/rustdesk-api-lite serve
+Environment=RDL_DB=/var/lib/rustdesk-api-lite/rustdesk-api-lite.db
+Environment=RDL_LISTEN=127.0.0.1:21114
+# Set when a reverse proxy (Caddy, nginx) sits in front and adds X-Forwarded-*.
+Environment=RDL_TRUST_PROXY=1
+# Optional first-start values; afterwards they are edited in the console.
+#Environment=RDL_PUBLIC_URL=https://rustdesk.example.com
+#Environment=RDL_ID_SERVER=rustdesk.example.com
+#Environment=RDL_RELAY_SERVER=rustdesk.example.com
+#Environment=RDL_KEY=<public key of hbbs, the content of id_ed25519.pub>
+DynamicUser=yes
+StateDirectory=rustdesk-api-lite
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -176,7 +176,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// Second step of a two-step sign-in: the code from the authenticator app.
 		entry := &store.LoginLog{Username: in.Username, Kind: "client", Method: "password + code", DeviceID: in.ID, DeviceName: in.DeviceInfo.Name, IP: s.clientIP(r)}
 		u, err := s.st.UserByID(s.tfa.user(in.Secret))
-		if err != nil || u.Disabled {
+		if err != nil || !u.Active() {
 			writeJSON(w, http.StatusOK, map[string]string{"error": "The sign-in expired, start again"})
 			return
 		}
@@ -285,8 +285,8 @@ func (s *Server) handleOIDCAuthQuery(w http.ResponseWriter, r *http.Request) {
 		s.st.DeleteOIDCSession(sess.Code)
 		id, _ := strconv.ParseInt(strings.TrimPrefix(sess.Result, "user:"), 10, 64)
 		u, err := s.st.UserByID(id)
-		if err != nil || u.Disabled {
-			writeJSON(w, http.StatusOK, map[string]string{"error": "This account is disabled"})
+		if err != nil || !u.Active() {
+			writeJSON(w, http.StatusOK, map[string]string{"error": "This account is disabled or has ended"})
 			return
 		}
 		s.st.AddLoginLog(&store.LoginLog{UserID: u.ID, Username: u.Username, Kind: "client", Method: sess.Provider, DeviceID: sess.DeviceID, DeviceName: sess.DeviceName, IP: s.clientIP(r), OK: true})
@@ -601,7 +601,7 @@ func (s *Server) handleGroupUsers(c *clientCtx) {
 	}
 	visible := s.st.VisibleUsers(c.user)
 	for _, u := range us {
-		if !u.Disabled && (visible == nil || slices.Contains(visible, u.ID)) {
+		if u.Active() && (visible == nil || slices.Contains(visible, u.ID)) {
 			list = append(list, s.userPayload(u))
 		}
 	}

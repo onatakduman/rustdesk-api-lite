@@ -56,12 +56,21 @@ An independent project, not affiliated with or endorsed by RustDesk
   end of a session), file transfers, sign-ins and the security alarms devices
   report
 - Users, groups, signed-in apps and browsers, API tokens for scripts
+- Invite links: a new person chooses their own password, or links their
+  sign-in provider, through a one-time link; nobody else ever knows a
+  password. The same link resets a forgotten one. The new account can come
+  with its group, its address books and an end date
+- Sign-in providers limited to your e-mail domains, with a group for the
+  accounts they create
+- A log of changes: who created, changed or deleted which account, group,
+  share, provider or setting
+- Optional e-mail, to send the invite links
 - The administration commands of hbbs and hbbr (relay list, block lists,
   bandwidth limits, …) from the console when they run on the same machine
 - A command line for accounts, tokens, shares and settings
 - An install that asks no questions, for people, scripts and AI agents
 
-Not included: session recording, LDAP, e-mail verification codes, fixed-ID
+Not included: session recording, LDAP, sign-in codes by e-mail, fixed-ID
 deployment (`rustdesk --deploy`, needs the rendezvous server's cooperation).
 `docs/client-api-contract.md` lists everything the client can call.
 
@@ -105,7 +114,7 @@ curl -fsSL https://raw.githubusercontent.com/onatakduman/rustdesk-api-lite/main/
 
 ```
 status=installed
-version=v0.1.3
+version=v0.2.0
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -115,7 +124,7 @@ admin_password=…
 ```
 
 `status` is `installed`, `upgraded`, `uninstalled` or `failed`, and the exit
-code is non-zero on failure. `RDL_VERSION=v0.1.3` pins a release and
+code is non-zero on failure. `RDL_VERSION=v0.2.0` pins a release and
 `RDL_LISTEN` moves the port. [AGENTS.md](AGENTS.md) has the whole procedure
 for an agent, from picking the method to handing over the client configuration.
 
@@ -130,14 +139,14 @@ docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
 
 Every release is published as an image for x86-64 and ARM64, here on GitHub's
 registry and on Docker Hub as `iamonat/rustdesk-api-lite`. `latest` is the
-newest release; a tag such as `:v0.1.3` pins one. To upgrade, pull the image
+newest release; a tag such as `:v0.2.0` pins one. To upgrade, pull the image
 and create the container again; the data stays in the volume. The `RDL_*`
 settings below work as `-e` options.
 
 To build the image yourself instead:
 
 ```sh
-docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.1.3
+docker build -t rustdesk-api-lite https://github.com/onatakduman/rustdesk-api-lite.git#v0.2.0
 ```
 
 ### From a release archive
@@ -172,6 +181,26 @@ go build -o rustdesk-api-lite .
    server) to the public address, for example `https://rustdesk.example.com`,
    or import the client configuration that the console and
    `rustdesk-api-lite config` show.
+
+### Inviting people
+
+Under Users, "New user" creates the account and, unless you give it a
+password, an invite link. Send the link over a channel you trust; whoever
+opens it chooses the password, or presses the button of a sign-in provider to
+link that instead. The link works once, for three days unless you choose
+otherwise (one day at most for an administrator), and making a new one
+cancels the one before. "Invite or reset link" in the menu of a user does the
+same for an existing account, which is also how a forgotten password is
+reset. While creating the account you can put it into a group, give it
+address books and set the day it ends.
+
+With a provider such as Google you can skip the invitations: under Settings,
+Sign-in providers, let the provider create accounts for new people, limit it
+to your e-mail domains and pick the group they land in.
+
+Mailing the links is optional (Settings, Outgoing e-mail). The server has to
+know its public address for the links (Settings, Server, or
+`rustdesk-api-lite config set public-url …`).
 
 ### Behind Caddy
 
@@ -223,6 +252,8 @@ settings on the first start; later they are changed in the console or with
 
 ```
 rustdesk-api-lite user add alice -admin     # password is read from stdin
+rustdesk-api-lite user add bob -invite      # no password; prints an invite link for bob
+rustdesk-api-lite invite alice              # a link to (re)set alice's password; -hours 24
 rustdesk-api-lite user passwd alice
 rustdesk-api-lite user list
 rustdesk-api-lite token add alice "nightly sync"   # an API token for scripts, printed once
@@ -266,6 +297,19 @@ The data stays in `/var/lib/rustdesk-api-lite` and the settings in
 - When a RustDesk app starts a sign-in through a provider, the browser page
   first names the device and asks. Do not continue for a sign-in you did not
   start: it would sign that device in with your account.
+- An invite link is a key to its account until it is used or runs out: send
+  it only to the person it is for. Only its hash is stored, it works once, a
+  new link cancels the old one, and for an account with two-step sign-in it
+  sets the password without signing in. The secret is in the part of the
+  address after `#`, which browsers do not send to servers.
+- A provider limited to e-mail domains creates accounts, and finds accounts
+  by e-mail, only for verified addresses at those domains. An account whose
+  owner linked the sign-in, or got it through an invite link, signs in
+  regardless.
+- An account with an end date cannot sign in from that day on and its
+  sessions stop. Administrators cannot have one.
+- The password of the mail server and the secrets of sign-in providers are
+  stored as plain text in the database, like every setting; protect the file.
 - The console uses an HttpOnly cookie; changes need a same-origin request.
 - Device reports (heartbeat, system information, logs) are unauthenticated by
   design of the RustDesk client. A device ID is bound to the first UUID that

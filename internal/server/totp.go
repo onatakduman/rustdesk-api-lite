@@ -151,6 +151,7 @@ func (s *Server) cTOTPEnable(c *consoleCtx) {
 		return
 	}
 	s.st.UseTOTPStep(c.user.ID, step) // the code that turned it on is used up as well
+	s.change(c, "user.totp", c.user.Username, "on")
 	c.done()
 }
 
@@ -166,5 +167,6 @@ func (s *Server) cTOTPDisable(c *consoleCtx) {
 	if c.err(s.st.SetTOTP(c.user.ID, "")) {
 		return
 	}
+	s.change(c, "user.totp", c.user.Username, "off")
 	c.done()
 }

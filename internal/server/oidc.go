@@ -193,21 +193,32 @@ func (s *Server) handleOIDCConfirm(w http.ResponseWriter, r *http.Request) {
 // oidcRedirect sends the browser to the provider and remembers, in a cookie,
 // that this browser is the one the answer has to come back to.
 func (s *Server) oidcRedirect(w http.ResponseWriter, r *http.Request, sess *store.OIDCSession, status int) {
+	to, err := s.oidcURL(r, sess)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		oidcPage(w, http.StatusNotFound, "Unknown provider", "This sign-in provider is not configured.")
+	case err != nil:
+		log.Printf("oidc %s: %v", sess.Provider, err)
+		oidcPage(w, http.StatusBadGateway, "Sign-in failed", "The sign-in provider could not be reached.")
+	default:
+		s.setOIDCCookie(w, r, sess.State)
+		http.Redirect(w, r, to, status)
+	}
+}
+
+// oidcURL is the address at the provider where the person signs in for sess.
+func (s *Server) oidcURL(r *http.Request, sess *store.OIDCSession) (string, error) {
 	p, err := s.st.OIDCProvider(sess.Provider)
 	if err != nil {
-		oidcPage(w, http.StatusNotFound, "Unknown provider", "This sign-in provider is not configured.")
-		return
+		return "", err
 	}
 	meta, err := s.oidc.discover(p)
 	if err != nil {
-		log.Printf("oidc %s: %v", p.Name, err)
-		oidcPage(w, http.StatusBadGateway, "Sign-in failed", "The sign-in provider could not be reached.")
-		return
+		return "", err
 	}
 	u, err := url.Parse(meta.AuthorizationEndpoint)
 	if err != nil {
-		oidcPage(w, http.StatusBadGateway, "Sign-in failed", "The sign-in provider is misconfigured.")
-		return
+		return "", err
 	}
 	v := u.Query()
 	v.Set("response_type", "code")
@@ -216,8 +227,7 @@ func (s *Server) oidcRedirect(w http.ResponseWriter, r *http.Request, sess *stor
 	v.Set("scope", p.Scopes)
 	v.Set("state", sess.State)
 	u.RawQuery = v.Encode()
-	s.setOIDCCookie(w, r, sess.State)
-	http.Redirect(w, r, u.String(), status)
+	return u.String(), nil
 }
 
 type oidcClaims struct {
@@ -337,14 +347,16 @@ var usernameUnsafe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, error) {
 	u, err := s.st.UserByIdentity(p.Name, c.Sub)
 	if err == nil {
-		if u.Disabled {
-			return nil, errors.New("this account is disabled")
+		if !u.Active() {
+			return nil, errors.New("this account is disabled or has ended")
 		}
 		return u, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
+	// What the provider does by itself can be limited to addresses at certain domains.
+	inDomain := domainAllowed(p.AllowedDomains, c.Email)
 	if c.Email != "" && c.verified() {
 		us, err := s.st.ListUsers()
 		if err != nil {
@@ -352,10 +364,10 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 		}
 		for _, cand := range us {
 			if strings.EqualFold(cand.Email, c.Email) {
-				if cand.Disabled {
-					return nil, errors.New("this account is disabled")
+				if !cand.Active() {
+					return nil, errors.New("this account is disabled or has ended")
 				}
-				if cand.IsAdmin || !p.LinkByEmail {
+				if cand.IsAdmin || !p.LinkByEmail || !inDomain {
 					return nil, errors.New("this sign-in is not linked to your account yet; sign in with your password and link it under Settings")
 				}
 				return cand, s.st.LinkIdentity(p.Name, c.Sub, cand.ID, c.Email)
@@ -364,6 +376,9 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 	}
 	if !p.AutoRegister {
 		return nil, errors.New("no account is linked to this sign-in; ask an administrator for an account, then link this sign-in under Settings")
+	}
+	if p.AllowedDomains != "" && !(c.verified() && inDomain) {
+		return nil, errors.New("this sign-in creates accounts only for e-mail addresses of this organisation; ask an administrator for an account")
 	}
 	base := c.PreferredUsername
 	if base == "" {
@@ -374,6 +389,9 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 		base = "user"
 	}
 	nu := &store.User{DisplayName: c.Name}
+	if s.st.GroupName(p.DefaultGroupID) != "" {
+		nu.GroupID = p.DefaultGroupID
+	}
 	if c.verified() {
 		// An address nobody verified is not kept: accounts are found by their
 		// address, and a stranger must not be able to claim someone else's.
@@ -385,10 +403,30 @@ func (s *Server) oidcUser(p *store.OIDCProvider, c *oidcClaims) (*store.User, er
 			nu.Username = base + strconv.Itoa(i+1)
 		}
 		if err = s.st.CreateUser(nu, "", ""); err == nil {
+			s.st.AddChange(&store.Change{Actor: nu.Username, Action: "user.create", Target: nu.Username, Detail: "registered through " + p.Name})
 			return nu, s.st.LinkIdentity(p.Name, c.Sub, nu.ID, c.Email)
 		}
 	}
 	return nil, err
+}
+
+// domainAllowed tells whether an e-mail address is at one of the listed
+// domains (comma-separated; an empty list allows every address).
+func domainAllowed(list, email string) bool {
+	if list == "" {
+		return true
+	}
+	i := strings.LastIndexByte(email, '@')
+	if i < 0 {
+		return false
+	}
+	domain := strings.ToLower(email[i+1:])
+	for _, d := range strings.Split(list, ",") {
+		if strings.TrimSpace(d) == domain {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +481,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		finish(nil, errors.New("the sign-in provider did not confirm the sign-in"))
 		return
 	}
+	if strings.HasPrefix(sess.Purpose, "invite:") {
+		s.finishInvite(w, r, sess, p, claims)
+		return
+	}
 	if strings.HasPrefix(sess.Purpose, "link:") {
 		uid, _ := strconv.ParseInt(strings.TrimPrefix(sess.Purpose, "link:"), 10, 64)
 		s.st.DeleteOIDCSession(sess.Code)
@@ -459,6 +501,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 			oidcPage(w, http.StatusInternalServerError, "Sign-in not linked", "Could not save the link.")
 			return
 		}
+		s.st.AddChange(&store.Change{Actor: cur.Username, Action: "user.provider", Target: cur.Username, Detail: "linked " + p.Name, IP: s.clientIP(r)})
 		http.Redirect(w, r, "/#/settings", http.StatusFound)
 		return
 	}

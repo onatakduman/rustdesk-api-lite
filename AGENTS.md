@@ -33,7 +33,7 @@ The script exits non-zero on failure and ends with lines to parse:
 
 ```
 status=installed            # or upgraded, uninstalled, failed
-version=v0.1.3
+version=v0.2.0
 url=http://127.0.0.1:21114
 health=http://127.0.0.1:21114/healthz
 service=rustdesk-api-lite
@@ -69,7 +69,9 @@ docker logs rustdesk-api-lite 2>&1 | grep 'First start'     # the admin password
    db="-db /var/lib/rustdesk-api-lite/rustdesk-api-lite.db"
    $run config $db                                    # shows the settings and client-config=…
    $run config set public-url https://rustdesk.example.com $db
-   $run user add alice $db < password-file            # also: user passwd, user list
+   $run user add alice -invite $db                    # no password: prints a one-time link for alice
+   $run invite alice $db                              # a new link, also to reset a password
+   $run user add alice $db < password-file            # with a password; also: user passwd, user list
    $run token add alice "nightly sync" $db            # prints an API token once
    $run share "Field" alice edit $db                  # view | edit | full | none
    ```
@@ -84,7 +86,9 @@ it), DNS and the certificate of the public address, and the choice of who
 gets an account. The printed admin password only opens the console, which
 makes the user replace it at the first sign-in; it does not sign in a
 RustDesk app and cannot call the console's API for you. Set the server up
-with the command line above instead.
+with the command line above instead. To give someone an account, prefer the
+invite link (`user add <name> -invite`, after `config set public-url`): hand
+the link to the user, who chooses the password; you never see one.
 
 ## Working on the code
 

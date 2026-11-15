@@ -91,6 +91,84 @@ const TR = {
   'For the dots in the address books this server asks the ID server of each entry, also the servers of other fleets. Off, only devices that report to this server show a state.': 'Adres defterlerindeki durum noktaları için bu sunucu her kaydın ID sunucusuna sorar; başka filoların sunucularına da. Kapalıyken yalnız bu sunucuya bildirim yapan cihazların durumu görünür.',
   'Date and time': 'Tarih ve saat', 'Date format': 'Tarih biçimi', 'Time zone': 'Saat dilimi', 'Automatic': 'Otomatik', 'This device ({0})': 'Bu cihaz ({0})',
   'Both are kept in this browser and apply to every date the console shows.': 'İkisi de bu tarayıcıda saklanır ve konsolun gösterdiği tüm tarihlere uygulanır.',
+  'Choose a password for the account {0}.': '{0} hesabı için bir parola belirle.',
+  'Repeat the password': 'Parolayı yinele',
+  'The two passwords differ.': 'İki parola birbirinden farklı.',
+  'Save and sign in': 'Kaydet ve giriş yap',
+  'Use my {0} account instead': 'Bunun yerine {0} hesabımı kullan',
+  'Password saved. Sign in with it.': 'Parola kaydedildi. Onunla giriş yap.',
+  'Go to the sign-in page': 'Giriş sayfasına git',
+  'Invite or reset link': 'Davet ya da sıfırlama bağlantısı',
+  'Withdraw the link': 'Bağlantıyı geri çek',
+  'Link withdrawn': 'Bağlantı geri çekildi',
+  'Link for {0}': '{0} için bağlantı',
+  'Make the link': 'Bağlantıyı oluştur',
+  'Invited': 'Davet edildi',
+  'Ended': 'Sona erdi',
+  'Until {0}': '{0} tarihine kadar',
+  'With this link the person chooses their own password, or links their sign-in provider. It works once.': 'Kişi bu bağlantıyla kendi parolasını belirler ya da giriş sağlayıcısını bağlar. Bağlantı bir kez çalışır.',
+  'Works once, until {0}. Pass it on over a channel you trust: whoever opens it first gets the account.': 'Bir kez ve {0} tarihine kadar çalışır. Güvendiğin bir kanaldan ilet: bağlantıyı ilk açan hesabı alır.',
+  'Sent to {0}.': '{0} adresine gönderildi.',
+  'Could not send the e-mail: {0}': 'E-posta gönderilemedi: {0}',
+  'Valid for': 'Geçerlilik süresi',
+  '1 day': '1 gün',
+  '3 days': '3 gün',
+  '7 days': '7 gün',
+  'No link': 'Bağlantı yok',
+  'Invite link': 'Davet bağlantısı',
+  'For an administrator the link is valid for one day at most.': 'Yönetici için bağlantı en çok bir gün geçerlidir.',
+  'Send the link by e-mail': 'Bağlantıyı e-postayla gönder',
+  'Leave empty and let the person choose it through the invite link.': 'Boş bırak; kişi davet bağlantısıyla kendisi belirlesin.',
+  'View': 'Görüntüle',
+  'Account ends on': 'Hesabın sona ereceği gün',
+  'Empty for an account without an end. From that day on the account cannot sign in. Not for administrators.': 'Sonu olmayan hesap için boş bırak. O günden sonra hesap giriş yapamaz. Yöneticiler için kullanılamaz.',
+  'Changes': 'Değişiklikler',
+  'No changes recorded yet': 'Henüz değişiklik kaydedilmedi',
+  'Who': 'Kim',
+  'What': 'Ne',
+  'Account created': 'Hesap açıldı',
+  'Account changed': 'Hesap değişti',
+  'Account deleted': 'Hesap silindi',
+  'Password set': 'Parola belirlendi',
+  'Invite link made': 'Davet bağlantısı oluşturuldu',
+  'Invite link withdrawn': 'Davet bağlantısı geri çekildi',
+  'Invite link used': 'Davet bağlantısı kullanıldı',
+  'Two-step sign-in changed': 'İki adımlı giriş değişti',
+  'Sign-in provider linked or unlinked': 'Giriş sağlayıcısı bağlandı ya da ayrıldı',
+  'Group saved': 'Grup kaydedildi',
+  'Group deleted': 'Grup silindi',
+  'Address book created': 'Adres defteri oluşturuldu',
+  'Address book changed': 'Adres defteri değişti',
+  'Address book deleted': 'Adres defteri silindi',
+  'Sharing changed': 'Paylaşım değişti',
+  'Device changed': 'Cihaz değişti',
+  'Device forgotten': 'Cihaz unutuldu',
+  'Session on a device ended': 'Cihazdaki oturum sonlandırıldı',
+  'Sign-in ended': 'Giriş sonlandırıldı',
+  'API token created': 'API token’ı oluşturuldu',
+  'Settings changed': 'Ayarlar değişti',
+  'Sign-in provider saved': 'Giriş sağlayıcısı kaydedildi',
+  'Sign-in provider deleted': 'Giriş sağlayıcısı silindi',
+  'Server command run': 'Sunucu komutu çalıştırıldı',
+  'Test e-mail sent': 'Deneme e-postası gönderildi',
+  'Only for e-mail addresses at these domains': 'Yalnız bu alan adlarındaki e-posta adresleri için',
+  'Group for the accounts it creates': 'Açtığı hesapların grubu',
+  'Limits the two options above, for example example.com. Empty: every address the provider verified. A sign-in that someone linked themselves, or through an invite link, always works.': 'Yukarıdaki iki seçeneği sınırlar, örneğin example.com. Boş: sağlayıcının doğruladığı her adres. Kişinin kendi bağladığı ya da davet bağlantısıyla bağlanan giriş her zaman çalışır.',
+  'Outgoing e-mail': 'Giden e-posta',
+  'Mail server': 'E-posta sunucusu',
+  'Port': 'Port',
+  'Connection': 'Bağlantı',
+  'STARTTLS (usual, port 587)': 'STARTTLS (yaygın, port 587)',
+  'TLS from the start (port 465)': 'Baştan TLS (port 465)',
+  'Not encrypted (a mail server on this machine)': 'Şifresiz (bu makinedeki e-posta sunucusu)',
+  'User name': 'Kullanıcı adı',
+  'Sender address': 'Gönderen adresi',
+  'Leave empty to keep the stored password.': 'Kayıtlı parolayı korumak için boş bırak.',
+  'Send a test message': 'Deneme iletisi gönder',
+  'Test message sent': 'Deneme iletisi gönderildi',
+  'Optional. With it, invite links can be mailed; without it you pass them on yourself. The password is stored as plain text on this server. Leave the mail server empty to switch it off.': 'İsteğe bağlı. Açıkken davet bağlantıları e-postayla gönderilebilir; kapalıyken kendin iletirsin. Parola bu sunucuda düz metin olarak saklanır. Kapatmak için e-posta sunucusunu boş bırak.',
+  'Address for the test': 'Deneme için adres',
+  'Target': 'Hedef',
   'Default password': 'Varsayılan parola', 'Offered by the app for entries of this book that have no password of their own. Stored as plain text.': 'Bu defterde kendi parolası olmayan kayıtlar için uygulamanın kullandığı parola. Düz metin saklanır.', 'Version {0}': 'Sürüm {0}', 'More': 'Diğer', 'Sign-in': 'Giriş', 'Role': 'Rol', 'User': 'Kullanıcı',
 };
 let lang = localStorage.getItem('rdl-lang') || ((navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en');
@@ -261,9 +339,10 @@ const go = (view, arg) => { location.hash = '#/' + view + (arg ? '/' + encodeURI
 async function render() {
   const app = document.getElementById('app');
   document.documentElement.lang = lang;
+  const { view, arg } = route();
+  if (view === 'invite' && arg) { app.replaceChildren(await inviteView(arg)); return; }
   if (!state.user) { app.replaceChildren(loginView()); return; }
   if (state.user.must_change_password) { app.replaceChildren(passwordGate()); return; }
-  const { view } = route();
   const items = NAV.filter(n => !n.admin || state.user.is_admin);
   // The side pane folds down to a rail of icons; the choice is kept in this browser.
   const rail = localStorage.getItem('rdl-side') === '1';
@@ -374,6 +453,39 @@ function passwordGate() {
     field(t('Current password'), h('input', { type: 'password', name: 'current', autocomplete: 'current-password', required: true, autofocus: true })),
     field(t('New password'), h('input', { type: 'password', name: 'new', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.')),
     err, h('button', { class: 'btn primary', type: 'submit' }, t('Change password')), out);
+  return h('div', { class: 'login' }, form);
+}
+// The page behind an invite link: the person chooses a password of their own,
+// or links their sign-in provider. The link's secret stays in the address
+// fragment and travels only in request bodies.
+async function inviteView(token) {
+  const leave = () => { history.replaceState(null, '', '#/'); render(); };
+  let info;
+  try { info = await api('POST', '/invite/check', { token }); } catch (ex) {
+    const home = h('button', { class: 'btn', type: 'button', onclick: leave }, t('Go to the sign-in page'));
+    return h('div', { class: 'login' }, h('form', null, brandMark(), h('div', { class: 'err', role: 'alert', style: 'margin-bottom:14px' }, ex.message), home));
+  }
+  const err = h('div', { class: 'err', role: 'alert' });
+  const form = h('form', { onsubmit: async e => {
+    e.preventDefault();
+    const f = new FormData(form);
+    if (f.get('new') !== f.get('again')) { err.textContent = t('The two passwords differ.'); return; }
+    try {
+      const r = await api('POST', '/invite/accept', { token, password: f.get('new') });
+      history.replaceState(null, '', '#/'); // the link is used up; it should not stay in the address bar
+      if (r.user) return afterLogin(r.user);
+      state.user = null; toast(t('Password saved. Sign in with it.')); render();
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    brandMark(),
+    h('p', { class: 'muted', style: 'margin:0 0 14px' }, t('Choose a password for the account {0}.', info.username)),
+    field(t('New password'), h('input', { type: 'password', name: 'new', autocomplete: 'new-password', minlength: 8, required: true, autofocus: true }), t('At least 8 characters.')),
+    field(t('Repeat the password'), h('input', { type: 'password', name: 'again', autocomplete: 'new-password', minlength: 8, required: true })),
+    err, h('button', { class: 'btn primary', type: 'submit' }, t('Save and sign in')),
+    info.providers.length ? h('div', { class: 'or' }, t('or')) : null,
+    info.providers.map(p => h('button', { class: 'btn', type: 'button', style: 'margin-top:8px', onclick: async () => {
+      try { location.href = (await api('POST', '/invite/provider', { token, provider: p })).url; } catch (ex) { err.textContent = ex.message; }
+    } }, t('Use my {0} account instead', p[0].toUpperCase() + p.slice(1)))));
   return h('div', { class: 'login' }, form);
 }
 function loginView() {
@@ -784,36 +896,70 @@ const platformOf = os => { const s = (os || '').toLowerCase(); return s.includes
 
 // ---------- users ----------
 async function usersView(main) {
-  const [{ users }, { groups }] = await Promise.all([api('GET', '/users'), api('GET', '/groups')]);
+  const [{ users, mail }, { groups }, { address_books: allBooks }] = await Promise.all([api('GET', '/users'), api('GET', '/groups'), api('GET', '/address-books?all=1')]);
+  const books = allBooks.filter(b => !b.personal);
+  const pad = n => String(n).padStart(2, '0');
+  const dayOf = ts => { if (!ts) return ''; const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const endOf = day => day ? Math.floor(new Date(day + 'T23:59:59').getTime() / 1000) : 0;
+  const validity = (adminAccount, none) => h('select', { name: 'invite_hours' }, [[24, '1 day'], [72, '3 days'], [168, '7 days']].map(([v, l]) => h('option', { value: v, selected: v === (adminAccount ? 24 : 72) }, t(l))), none && h('option', { value: 0 }, t('No link')));
+  // showLink shows a fresh link once; it cannot be looked up again later.
+  const showLink = (u, res) => dialog(t('Link for {0}', u.username), [
+    h('div', { class: 'copybox' }, h('span', { class: 'mono grow wrap' }, res.url), h('button', { class: 'btn small', type: 'button', onclick: () => copy(res.url) }, t('Copy'))), h('br'),
+    h('p', { class: 'muted' }, t('Works once, until {0}. Pass it on over a channel you trust: whoever opens it first gets the account.', when(res.expires_at))),
+    res.emailed && h('p', null, t('Sent to {0}.', u.email)),
+    res.email_error && h('p', { class: 'err' }, t('Could not send the e-mail: {0}', res.email_error))], async () => {}, { save: t('Done') });
+  const invite = async u => {
+    let res;
+    const ok = await dialog(t('Invite or reset link'), [
+      h('p', { class: 'muted' }, t('With this link the person chooses their own password, or links their sign-in provider. It works once.')), h('br'),
+      field(t('Valid for'), validity(u.is_admin), u.is_admin && t('For an administrator the link is valid for one day at most.')),
+      mail && u.email && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'email' }), t('Send the link by e-mail'))],
+    async f => { res = await api('POST', `/users/${u.id}/invite`, { hours: Number(f.get('invite_hours')), email: f.has('email'), lang }); }, { save: t('Make the link') });
+    if (ok) { await showLink(u, res); render(); }
+  };
   const editGroup = async g => { await dialog(g ? t('Edit group') : t('New group'), [field(t('Name'), text('name', g?.name || '', { required: true, autofocus: !g })),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'shared', checked: g?.shared }), t('Members see each other\'s devices in the RustDesk app')),
     h('p', { class: 'muted hint' }, t('In a regular group everybody sees only their own devices.'))],
   f => api('PUT', '/groups/' + (g ? g.id : 'new'), { name: f.get('name'), shared: f.has('shared') })) && render(); };
   const edit = async u => {
-    await dialog(u ? t('Edit user') : t('New user'), [
+    let made;
+    const saved = await dialog(u ? t('Edit user') : t('New user'), [
       !u && field(t('Username'), text('username', '', { required: true, autofocus: true })),
       field(t('E-mail'), h('input', { type: 'email', name: 'email', value: u?.email || '' })),
       field(t('Display name'), text('display_name', u?.display_name || '')),
-      !u && field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8 }), t('Leave empty for an account that signs in with a provider only.')),
-      u && groups.length > 0 && field(t('Group'), h('select', { name: 'group_id' }, h('option', { value: 0 }, t('No group')), groups.map(g => h('option', { value: g.id, selected: g.id === u.group_id }, g.name)))),
+      !u && field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8 }), t('Leave empty and let the person choose it through the invite link.')),
+      !u && field(t('Invite link'), validity(false, true)),
+      !u && mail && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'invite_email' }), t('Send the link by e-mail')),
+      groups.length > 0 && field(t('Group'), h('select', { name: 'group_id' }, h('option', { value: 0 }, t('No group')), groups.map(g => h('option', { value: g.id, selected: g.id === u?.group_id }, g.name)))),
+      !u && books.length > 0 && field(t('Address books'), h('div', null, books.map(b => h('div', { class: 'row', style: 'margin-bottom:6px' }, h('span', { class: 'grow trunc' }, b.name),
+        h('select', { name: 'share:' + b.guid, style: 'width:auto' }, h('option', { value: 0 }, t('No access')), h('option', { value: 1 }, t('View')), h('option', { value: 2 }, t('Edit'))))))),
+      field(t('Account ends on'), h('input', { type: 'date', name: 'expires', value: dayOf(u?.expires_at) }), t('Empty for an account without an end. From that day on the account cannot sign in. Not for administrators.')),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'is_admin', checked: u?.is_admin }), t('Administrator')),
       u && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'disabled', checked: u.disabled }), t('Disabled')),
       u?.has_totp && h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'reset_totp' }), t('Reset two-step sign-in')),
-    ], f => {
-      const body = { email: f.get('email'), display_name: f.get('display_name'), is_admin: f.has('is_admin') };
-      return u ? api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled'), reset_totp: f.has('reset_totp'), ...(f.has('group_id') ? { group_id: Number(f.get('group_id')) } : {}) }) : api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password') });
-    }) && render();
+    ], async f => {
+      const body = { email: f.get('email'), display_name: f.get('display_name'), is_admin: f.has('is_admin'), expires_at: endOf(f.get('expires')), ...(f.has('group_id') ? { group_id: Number(f.get('group_id')) } : {}) };
+      if (u) return api('PATCH', '/users/' + u.id, { ...body, disabled: f.has('disabled'), reset_totp: f.has('reset_totp') });
+      const shares = books.map(b => ({ guid: b.guid, rule: Number(f.get('share:' + b.guid)) })).filter(x => x.rule > 0);
+      const hours = Number(f.get('invite_hours'));
+      made = await api('POST', '/users', { ...body, username: f.get('username'), password: f.get('password'), shares, invite: hours > 0, invite_hours: hours, invite_email: f.has('invite_email'), lang });
+    });
+    if (saved && made?.invite) await showLink(made.user, made.invite);
+    if (saved) render();
   };
   const setPw = u => dialog(t('Set password'), [field(t('New password'), h('input', { type: 'password', name: 'password', autocomplete: 'new-password', minlength: 8, required: true }), t('At least 8 characters.'))],
     f => api('POST', `/users/${u.id}/password`, { password: f.get('password') })).then(ok => ok && toast(t('Password changed')));
   const row = u => {
     const more = h('button', { class: 'icon-btn', 'aria-label': t('More'), onclick: () => menu(more, [
-      { label: t('Edit'), run: () => edit(u) }, { label: t('Set password'), run: () => setPw(u) },
+      { label: t('Edit'), run: () => edit(u) }, { label: t('Invite or reset link'), run: () => invite(u) }, { label: t('Set password'), run: () => setPw(u) },
+      u.invite_expires_at > 0 && { label: t('Withdraw the link'), run: async () => { try { await api('DELETE', `/users/${u.id}/invite`); toast(t('Link withdrawn')); } catch (ex) { toast(ex.message); } render(); } },
       u.id !== state.user.id && '-', u.id !== state.user.id && { label: t('Delete'), danger: true, run: async () => {
         if (await confirmBox(t('Delete the user {0}? Their address books are deleted too.', u.username), t('Delete'))) { try { await api('DELETE', '/users/' + u.id); } catch (ex) { toast(ex.message); } render(); }
       } }]) }, icon('more'));
     return h('div', null, h('div', { class: 'avatar' }, u.username[0].toUpperCase()),
       h('div', { class: 'grow' }, h('div', { class: 'row' }, h('b', { class: 'trunc' }, u.username), u.is_admin && h('span', { class: 'chip blue' }, t('Administrator')), u.disabled && h('span', { class: 'chip' }, t('Disabled')),
+        u.expired ? h('span', { class: 'chip' }, t('Ended')) : u.expires_at > 0 && h('span', { class: 'chip' }, t('Until {0}', dayOf(u.expires_at))),
+        u.invite_expires_at > 0 && h('span', { class: 'chip blue' }, t('Invited')),
         u.group_id > 0 && h('span', { class: 'chip' }, groups.find(g => g.id === u.group_id)?.name)),
         h('div', { class: 'sub trunc' }, [u.display_name, u.email].filter(Boolean).join(', '))),
       h('div', { class: 'row wide-only' }, u.providers.map(p => h('span', { class: 'chip' }, p)), u.has_totp && h('span', { class: 'chip blue' }, t('Two-step')), !u.has_password && h('span', { class: 'chip' }, t('No password'))), more);
@@ -856,6 +1002,12 @@ async function sessionsView(main) {
 
 // ---------- logs ----------
 const logs = { tab: 'connections', offset: 0 };
+const CHANGES = { 'user.create': 'Account created', 'user.update': 'Account changed', 'user.delete': 'Account deleted', 'user.password': 'Password set', 'user.invite': 'Invite link made',
+  'user.invite.withdraw': 'Invite link withdrawn', 'user.invite.used': 'Invite link used', 'user.totp': 'Two-step sign-in changed', 'user.provider': 'Sign-in provider linked or unlinked',
+  'group.save': 'Group saved', 'group.delete': 'Group deleted', 'book.create': 'Address book created', 'book.update': 'Address book changed', 'book.delete': 'Address book deleted',
+  'book.shares': 'Sharing changed', 'device.update': 'Device changed', 'device.forget': 'Device forgotten', 'device.disconnect': 'Session on a device ended', 'session.end': 'Sign-in ended',
+  'token.create': 'API token created', 'settings.update': 'Settings changed', 'provider.save': 'Sign-in provider saved', 'provider.delete': 'Sign-in provider deleted',
+  'server.command': 'Server command run', 'mail.test': 'Test e-mail sent' };
 const ALARMS = { 0: 'Blocked by the address whitelist', 1: 'More than 30 failed attempts', 2: 'Six failed attempts within a minute', 6: 'Repeated attempts from one IPv6 range',
   7: 'Terminal sign-in attempts throttled', 8: 'Too many terminal sign-ins at once', 9: 'Session went beyond its permission', 10: 'Blocked by the ID whitelist' };
 async function logsView(main) {
@@ -874,10 +1026,12 @@ async function logsView(main) {
       h('td', null, r.method), two(r.kind === 'console' ? t('Web console') : (r.device_name || t('RustDesk app')), r.device_id && fmtId(r.device_id)), h('td', { class: 'mono' }, r.ip), h('td', null, when(r.at))] },
     alarms: { empty: 'No alarms. Devices report blocked addresses and repeated failed attempts here.', cols: ['Device', 'Event', 'Details', 'Time'], row: r => [two(r.device || fmtId(r.device_id), r.device && fmtId(r.device_id)),
       h('td', null, ALARMS[r.type] ? t(ALARMS[r.type]) : t('Security event {0}', r.type)), h('td', null, info(r.info)), h('td', null, when(r.at))] },
+    changes: { empty: 'No changes recorded yet', cols: ['Time', 'Who', 'What', 'Target', 'Details'], row: r => [h('td', null, when(r.at)), two(r.actor, r.ip), h('td', null, CHANGES[r.action] ? t(CHANGES[r.action]) : r.action),
+      h('td', null, r.target), h('td', null, r.detail)] },
   };
   const d = defs[logs.tab];
   main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'head' }, h('h1', null, t('Logs')),
-    admin && [tab('connections', 'Connections'), tab('files', 'File transfers'), tab('logins', 'Sign-ins'), tab('alarms', 'Alarms')]),
+    admin && [tab('connections', 'Connections'), tab('files', 'File transfers'), tab('logins', 'Sign-ins'), tab('alarms', 'Alarms'), tab('changes', 'Changes')]),
   h('div', { class: 'panel' }, rows.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, d.cols.map(x => h('th', null, t(x))))), h('tbody', null, rows.map(r => h('tr', null, d.row(r))))))
     : h('div', { class: 'empty' }, h('b', null, t(d.empty)))),
   total > size && h('div', { class: 'row pager' }, h('button', { class: 'btn small', disabled: logs.offset === 0, onclick: () => { logs.offset = Math.max(0, logs.offset - size); render(); } }, t('Newer')),
@@ -888,7 +1042,7 @@ async function logsView(main) {
 // ---------- settings ----------
 async function settingsView(main) {
   const admin = state.user.is_admin;
-  const [ov, cfg] = await Promise.all([api('GET', '/overview'), admin ? api('GET', '/settings') : null]);
+  const [ov, cfg, grp] = await Promise.all([api('GET', '/overview'), admin ? api('GET', '/settings') : null, admin ? api('GET', '/groups') : null]);
   state.overview = ov;
   const c = ov.counts, panels = [];
   panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Overview')), h('span', { class: 'muted' }, t('Version {0}', ov.version))),
@@ -935,6 +1089,26 @@ async function settingsView(main) {
         h('input', { type: 'text', name: 'cmd', class: 'mono grow', placeholder: 'h', 'aria-label': t('Command'), required: true, autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' }),
         h('button', { class: 'btn', type: 'submit' }, t('Run'))), outBox);
     panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Server commands'))), cmd));
+    const m = cfg.mail;
+    const mailForm = h('form', { class: 'pad', onsubmit: async e => {
+      e.preventDefault();
+      const f = new FormData(mailForm);
+      try { await api('PUT', '/settings', { mail: { host: f.get('host'), port: f.get('port'), security: f.get('security'), user: f.get('user'), password: f.get('password'), from: f.get('from') } }); toast(t('Saved')); render(); } catch (ex) { toast(ex.message); }
+    } },
+      h('p', { class: 'muted' }, t('Optional. With it, invite links can be mailed; without it you pass them on yourself. The password is stored as plain text on this server. Leave the mail server empty to switch it off.')), h('br'),
+      field(t('Mail server'), text('host', m.host, { placeholder: 'smtp.example.com' })),
+      field(t('Connection'), h('select', { name: 'security' }, [['starttls', 'STARTTLS (usual, port 587)'], ['tls', 'TLS from the start (port 465)'], ['none', 'Not encrypted (a mail server on this machine)']].map(([v, l]) => h('option', { value: v, selected: m.security === v }, t(l))))),
+      field(t('Port'), text('port', m.port, { inputmode: 'numeric', placeholder: '587' })),
+      field(t('User name'), text('user', m.user)),
+      field(t('Password'), h('input', { type: 'password', name: 'password', autocomplete: 'off' }), m.password_set && t('Leave empty to keep the stored password.')),
+      field(t('Sender address'), text('from', m.from, { placeholder: 'RustDesk <rustdesk@example.com>' })),
+      h('button', { class: 'btn primary', type: 'submit' }, t('Save')));
+    const testForm = h('form', { class: 'pad row', onsubmit: async e => {
+      e.preventDefault();
+      try { await api('POST', '/mail/test', { to: new FormData(testForm).get('to') }); toast(t('Test message sent')); } catch (ex) { toast(ex.message); }
+    } }, h('input', { type: 'email', name: 'to', class: 'grow', required: true, value: state.user.email || '', placeholder: t('Address for the test'), 'aria-label': t('Address for the test') }),
+      h('button', { class: 'btn', type: 'submit' }, t('Send a test message')));
+    panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Outgoing e-mail')), h('span', { class: 'chip' + (m.ready ? ' blue' : '') }, m.ready ? t('On') : t('Off'))), mailForm, m.ready && testForm));
     const editProvider = async p => {
       await dialog(p ? p.name : t('Add provider'), [
         !p && field(t('Name'), text('name', 'google', { required: true, pattern: '[a-z0-9_-]+' })),
@@ -944,8 +1118,11 @@ async function settingsView(main) {
         h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'auto_register', checked: p?.auto_register }), t('Create accounts for new people who sign in')),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'link_by_email', checked: p?.link_by_email }), t('Sign people in to the account that has their verified e-mail address')),
         h('small', { class: 'muted', style: 'display:block;margin:4px 0 14px' }, t('Only for a provider you trust to verify addresses, such as your own directory. Administrators are never found this way: they link the sign-in themselves, under Settings.')),
+        field(t('Only for e-mail addresses at these domains'), text('allowed_domains', p?.allowed_domains || '', { placeholder: 'example.com' }),
+          t('Limits the two options above, for example example.com. Empty: every address the provider verified. A sign-in that someone linked themselves, or through an invite link, always works.')),
+        grp.groups.length > 0 && field(t('Group for the accounts it creates'), h('select', { name: 'default_group_id' }, h('option', { value: 0 }, t('No group')), grp.groups.map(g => h('option', { value: g.id, selected: g.id === p?.default_group_id }, g.name)))),
         field(t('Redirect address to register at the provider'), h('div', { class: 'copybox' }, h('span', { class: 'mono trunc grow' }, cfg.oidc_callback), h('button', { class: 'btn small', type: 'button', onclick: () => copy(cfg.oidc_callback) }, t('Copy')))),
-      ], f => api('PUT', '/oidc/' + encodeURIComponent(p ? p.name : f.get('name')), { issuer: f.get('issuer'), client_id: f.get('client_id'), client_secret: f.get('client_secret'), auto_register: f.has('auto_register'), link_by_email: f.has('link_by_email') })) && render();
+      ], f => api('PUT', '/oidc/' + encodeURIComponent(p ? p.name : f.get('name')), { issuer: f.get('issuer'), client_id: f.get('client_id'), client_secret: f.get('client_secret'), auto_register: f.has('auto_register'), link_by_email: f.has('link_by_email'), allowed_domains: f.get('allowed_domains'), default_group_id: Number(f.get('default_group_id') || 0) })) && render();
     };
     panels.push(h('section', { class: 'panel' }, h('header', null, h('h2', null, t('Sign-in providers')), h('button', { class: 'btn small', onclick: () => editProvider() }, t('Add provider'))),
       h('div', { class: 'list' }, cfg.oidc.length ? cfg.oidc.map(p => h('div', null, h('div', { class: 'grow' }, h('b', null, p.name), h('div', { class: 'sub trunc' }, p.issuer)),
@@ -1000,7 +1177,7 @@ async function settingsView(main) {
 }
 
 // ---------- start ----------
-addEventListener('hashchange', () => state.user && render());
+addEventListener('hashchange', () => (state.user || route().view === 'invite') && render());
 (async () => {
   try {
     const b = await api('GET', '/bootstrap');

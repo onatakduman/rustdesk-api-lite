@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.0
+
+Giving people accounts without anyone knowing their password.
+
+- Invite links: "New user" makes an account without a password and a
+  one-time link; the person who opens it chooses the password, or links
+  their sign-in provider. "Invite or reset link" does the same for an
+  existing account, so it also resets a forgotten password. Links work once,
+  three days by default (one day at most for administrators), and a new one
+  cancels the old. Also from the command line: `user add <name> -invite`
+  and `invite <name>`
+- A new account can be given its group, its address books and an end date
+  in the same step
+- Accounts with an end date: from that day on they cannot sign in
+- Sign-in providers can be limited to e-mail domains and put the accounts
+  they create into a group
+- A log of changes under Logs: who created, changed or deleted which
+  account, group, address book, share, provider or setting, also for the
+  command line
+- Optional outgoing e-mail (Settings) to send invite links, with a test
+  message. Without it, links are copied and passed on by hand
+
 ## v0.1.3
 
 A security release, after an outside review of the code. Upgrade when you can;

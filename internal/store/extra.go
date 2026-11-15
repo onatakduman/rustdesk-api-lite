@@ -168,7 +168,7 @@ func (s *Store) SetConnNote(id int64, note string) error {
 // PruneLogs deletes log rows older than the given unix time and returns how many went.
 func (s *Store) PruneLogs(before int64) int64 {
 	var n int64
-	for _, q := range []string{"DELETE FROM audit_conn WHERE started_at < ?", "DELETE FROM audit_file WHERE at < ?", "DELETE FROM login_log WHERE at < ?", "DELETE FROM alarms WHERE at < ?"} {
+	for _, q := range []string{"DELETE FROM audit_conn WHERE started_at < ?", "DELETE FROM audit_file WHERE at < ?", "DELETE FROM login_log WHERE at < ?", "DELETE FROM alarms WHERE at < ?", "DELETE FROM change_log WHERE at < ?"} {
 		if res, err := s.db.Exec(q, before); err == nil {
 			c, _ := res.RowsAffected()
 			n += c

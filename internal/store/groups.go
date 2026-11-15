@@ -62,6 +62,9 @@ func (s *Store) DeleteGroup(id int64) error {
 	if _, err := s.db.Exec("DELETE FROM ab_group_shares WHERE group_id = ?", id); err != nil {
 		return err
 	}
+	if _, err := s.db.Exec("UPDATE oidc_providers SET default_group_id = 0 WHERE default_group_id = ?", id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM user_groups WHERE id = ?", id)
 	return err
 }

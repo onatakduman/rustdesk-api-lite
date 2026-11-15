@@ -46,5 +46,6 @@ func (s *Server) cServerCmd(c *consoleCtx) {
 		return
 	}
 	out, _ := io.ReadAll(io.LimitReader(conn, 256<<10))
+	s.change(c, "server.command", in.Target, in.Cmd)
 	c.ok(map[string]string{"output": string(out)})
 }

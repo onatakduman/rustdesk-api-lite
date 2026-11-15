@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -166,6 +168,12 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("POST "+p+"/users", s.authed(true, s.cUserCreate))
 	m.HandleFunc("PATCH "+p+"/users/{id}", s.authed(true, s.cUserPatch))
 	m.HandleFunc("POST "+p+"/users/{id}/password", s.authed(true, s.cUserPassword))
+	m.HandleFunc("POST "+p+"/users/{id}/invite", s.authed(true, s.cUserInvite))
+	m.HandleFunc("DELETE "+p+"/users/{id}/invite", s.authed(true, s.cUserInviteDelete))
+	// What the page behind an invite link calls; the link's secret is the credential.
+	m.HandleFunc("POST "+p+"/invite/check", s.handleInviteCheck)
+	m.HandleFunc("POST "+p+"/invite/accept", s.handleInviteAccept)
+	m.HandleFunc("POST "+p+"/invite/provider", s.handleInviteProvider)
 	m.HandleFunc("DELETE "+p+"/users/{id}", s.authed(true, s.cUserDelete))
 
 	m.HandleFunc("GET "+p+"/groups", s.authed(false, s.cGroups))
@@ -180,10 +188,12 @@ func (s *Server) consoleRoutes() {
 	m.HandleFunc("GET "+p+"/logs/files", s.authed(true, s.cLogFiles))
 	m.HandleFunc("GET "+p+"/logs/logins", s.authed(false, s.cLogLogins))
 	m.HandleFunc("GET "+p+"/logs/alarms", s.authed(true, s.cLogAlarms))
+	m.HandleFunc("GET "+p+"/logs/changes", s.authed(true, s.cLogChanges))
 
 	m.HandleFunc("GET "+p+"/settings", s.authed(true, s.cSettings))
 	m.HandleFunc("PUT "+p+"/settings", s.authed(true, s.cSettingsPut))
 	m.HandleFunc("POST "+p+"/server-cmd", s.authed(true, s.cServerCmd))
+	m.HandleFunc("POST "+p+"/mail/test", s.authed(true, s.cMailTest))
 	m.HandleFunc("PUT "+p+"/oidc/{name}", s.authed(true, s.cOIDCPut))
 	m.HandleFunc("DELETE "+p+"/oidc/{name}", s.authed(true, s.cOIDCDelete))
 
@@ -308,6 +318,7 @@ func (s *Server) cOwnPassword(c *consoleCtx) {
 	if c.err(s.st.SetPassword(c.user.ID, in.New, c.tok)) {
 		return
 	}
+	s.change(c, "user.password", c.user.Username, "own password")
 	c.done()
 }
 
@@ -321,6 +332,7 @@ func (s *Server) cOwnUnlink(c *consoleCtx) {
 	if c.err(s.st.UnlinkIdentity(c.r.PathValue("provider"), c.user.ID)) {
 		return
 	}
+	s.change(c, "user.provider", c.user.Username, "unlinked "+c.r.PathValue("provider"))
 	c.done()
 }
 
@@ -362,6 +374,21 @@ func (s *Server) cDevicePatch(c *consoleCtx) {
 			return
 		}
 	}
+	var what []string
+	if in.Note != nil {
+		what = append(what, "note")
+	}
+	if in.Group != nil {
+		what = append(what, "group: "+strings.TrimSpace(*in.Group))
+	}
+	if in.OwnerID != nil {
+		owner := "nobody"
+		if u, err := s.st.UserByID(*in.OwnerID); err == nil {
+			owner = u.Username
+		}
+		what = append(what, "owner: "+owner)
+	}
+	s.change(c, "device.update", id, strings.Join(what, "; "))
 	c.done()
 }
 
@@ -378,6 +405,7 @@ func (s *Server) cDeviceDisconnect(c *consoleCtx) {
 		return
 	}
 	s.kicks.add(d.ID, in.ConnID)
+	s.change(c, "device.disconnect", d.ID, "session "+strconv.FormatInt(in.ConnID, 10))
 	c.done()
 }
 
@@ -385,6 +413,7 @@ func (s *Server) cDeviceDelete(c *consoleCtx) {
 	if c.err(s.st.DeleteDevice(c.r.PathValue("id"))) {
 		return
 	}
+	s.change(c, "device.forget", c.r.PathValue("id"), "")
 	c.done()
 }
 
@@ -487,6 +516,7 @@ func (s *Server) cBookCreate(c *consoleCtx) {
 	if c.err(err) {
 		return
 	}
+	s.change(c, "book.create", strings.TrimSpace(in.Name), "")
 	c.ok(map[string]string{"guid": guid})
 }
 
@@ -538,6 +568,17 @@ func (s *Server) cBookPatch(c *consoleCtx) {
 	if c.err(s.st.UpdateAB(b.GUID, b.Name, b.Note)) {
 		return
 	}
+	var what []string
+	if in.Name != nil {
+		what = append(what, "name")
+	}
+	if in.Note != nil {
+		what = append(what, "note")
+	}
+	if in.DefaultPassword != nil {
+		what = append(what, "default password")
+	}
+	s.change(c, "book.update", b.Name, strings.Join(what, "; "))
 	c.done()
 }
 
@@ -549,6 +590,7 @@ func (s *Server) cBookDelete(c *consoleCtx) {
 	if c.err(s.st.DeleteAB(b.GUID)) {
 		return
 	}
+	s.change(c, "book.delete", b.Name, "")
 	c.done()
 }
 
@@ -646,6 +688,20 @@ func (s *Server) cSharesPut(c *consoleCtx) {
 	if c.err(s.st.SetShares(b.GUID, in.Shares)) {
 		return
 	}
+	var who []string
+	if shares, err := s.st.Shares(b.GUID); err == nil {
+		for _, sh := range shares {
+			if sh.GroupID != 0 {
+				who = append(who, "group "+sh.Group+": "+ruleName(sh.Rule))
+			} else {
+				who = append(who, sh.Username+": "+ruleName(sh.Rule))
+			}
+		}
+	}
+	if len(who) == 0 {
+		who = []string{"nobody"}
+	}
+	s.change(c, "book.shares", b.Name, strings.Join(who, "; "))
 	c.done()
 }
 
@@ -664,18 +720,25 @@ func (s *Server) cUsers(c *consoleCtx) {
 		}
 		out := []brief{}
 		for _, u := range us {
-			if !u.Disabled {
+			if u.Active() {
 				out = append(out, brief{u.ID, u.Username})
 			}
 		}
 		c.ok(map[string]any{"users": out})
 		return
 	}
-	out := []userView{}
-	for _, u := range us {
-		out = append(out, userView{u, s.st.IdentityProviders(u.ID)})
+	type row struct {
+		userView
+		// InviteExpiresAt is set while the account has an unused invite link.
+		InviteExpiresAt int64 `json:"invite_expires_at"`
 	}
-	c.ok(map[string]any{"users": out})
+	pending := s.st.PendingInvites()
+	out := []row{}
+	for _, u := range us {
+		out = append(out, row{userView{u, s.st.IdentityProviders(u.ID)}, pending[u.ID]})
+	}
+	_, mailReady := s.mailConfig()
+	c.ok(map[string]any{"users": out, "mail": mailReady})
 }
 
 func (s *Server) cUserCreate(c *consoleCtx) {
@@ -683,6 +746,18 @@ func (s *Server) cUserCreate(c *consoleCtx) {
 		Username, Password, Email string
 		DisplayName               string `json:"display_name"`
 		IsAdmin                   bool   `json:"is_admin"`
+		GroupID                   int64  `json:"group_id"`
+		ExpiresAt                 int64  `json:"expires_at"`
+		// Address books the new account can use from the start.
+		Shares []struct {
+			GUID string
+			Rule int
+		}
+		// Invite makes a link with which the person sets their own password.
+		Invite      bool
+		InviteHours int  `json:"invite_hours"`
+		InviteEmail bool `json:"invite_email"`
+		Lang        string
 	}
 	if !c.body(&in) {
 		return
@@ -691,11 +766,66 @@ func (s *Server) cUserCreate(c *consoleCtx) {
 		c.fail(http.StatusBadRequest, "the password needs at least 8 characters")
 		return
 	}
-	u := &store.User{Username: in.Username, Email: strings.TrimSpace(in.Email), DisplayName: in.DisplayName, IsAdmin: in.IsAdmin}
+	if msg := endDateProblem(in.IsAdmin, in.ExpiresAt); msg != "" {
+		c.fail(http.StatusBadRequest, msg)
+		return
+	}
+	if in.GroupID != 0 && s.st.GroupName(in.GroupID) == "" {
+		c.fail(http.StatusBadRequest, "that group does not exist")
+		return
+	}
+	for _, sh := range in.Shares {
+		if b, err := s.st.AB(sh.GUID, c.user.ID); err != nil || b.Personal || sh.Rule < store.RuleRead || sh.Rule > store.RuleFull {
+			c.fail(http.StatusBadRequest, "one of the address books cannot be shared")
+			return
+		}
+	}
+	u := &store.User{Username: in.Username, Email: strings.TrimSpace(in.Email), DisplayName: in.DisplayName, IsAdmin: in.IsAdmin, GroupID: in.GroupID, ExpiresAt: in.ExpiresAt}
 	if c.err(s.st.CreateUser(u, in.Password, "")) {
 		return
 	}
-	c.ok(map[string]any{"user": u})
+	what := []string{}
+	if u.IsAdmin {
+		what = append(what, "administrator")
+	}
+	if u.GroupID != 0 {
+		what = append(what, "group: "+s.st.GroupName(u.GroupID))
+	}
+	if u.ExpiresAt != 0 {
+		what = append(what, "ends "+time.Unix(u.ExpiresAt, 0).UTC().Format("2006-01-02"))
+	}
+	for _, sh := range in.Shares {
+		if c.err(s.st.AddShare(sh.GUID, u.ID, sh.Rule)) {
+			return
+		}
+		if b, err := s.st.AB(sh.GUID, c.user.ID); err == nil {
+			what = append(what, "book "+b.Name+": "+ruleName(sh.Rule))
+		}
+	}
+	s.change(c, "user.create", u.Username, strings.Join(what, "; "))
+	out := map[string]any{"user": u}
+	if in.Invite {
+		res, err := s.newInvite(c, u, in.InviteHours, in.InviteEmail, in.Lang)
+		if c.err(err) {
+			return
+		}
+		out["invite"] = res
+	}
+	c.ok(out)
+}
+
+// endDateProblem says why an account may not get this end date ("" when it may).
+func endDateProblem(admin bool, expiresAt int64) string {
+	switch {
+	case expiresAt == 0:
+		return ""
+	case admin:
+		// An administrator that ends could leave the server without one.
+		return "an administrator cannot have an end date"
+	case expiresAt <= time.Now().Unix():
+		return "the end date has to be in the future"
+	}
+	return ""
 }
 
 func (s *Server) pathUser(c *consoleCtx) *store.User {
@@ -718,11 +848,13 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 		IsAdmin     *bool   `json:"is_admin"`
 		Disabled    *bool
 		GroupID     *int64 `json:"group_id"`
+		ExpiresAt   *int64 `json:"expires_at"`
 		ResetTOTP   bool   `json:"reset_totp"`
 	}{}
 	if !c.body(&in) {
 		return
 	}
+	before := *u
 	wasAdmin := u.IsAdmin && !u.Disabled
 	if in.Email != nil {
 		u.Email = strings.TrimSpace(*in.Email)
@@ -742,8 +874,21 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 	if in.GroupID != nil {
 		u.GroupID = *in.GroupID
 	}
+	if in.ExpiresAt != nil {
+		u.ExpiresAt = *in.ExpiresAt
+	}
 	if wasAdmin && !(u.IsAdmin && !u.Disabled) && s.st.CountAdmins() <= 1 {
 		c.fail(http.StatusBadRequest, "this is the last administrator")
+		return
+	}
+	if u.ExpiresAt != before.ExpiresAt || (u.IsAdmin && u.ExpiresAt != 0) {
+		if msg := endDateProblem(u.IsAdmin, u.ExpiresAt); msg != "" {
+			c.fail(http.StatusBadRequest, msg)
+			return
+		}
+	}
+	if u.GroupID != 0 && u.GroupID != before.GroupID && s.st.GroupName(u.GroupID) == "" {
+		c.fail(http.StatusBadRequest, "that group does not exist")
 		return
 	}
 	if c.err(s.st.UpdateUser(u)) {
@@ -752,6 +897,46 @@ func (s *Server) cUserPatch(c *consoleCtx) {
 	if in.ResetTOTP && c.err(s.st.SetTOTP(u.ID, "")) {
 		return
 	}
+	yes := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "no"
+	}
+	what := []string{}
+	if u.Email != before.Email {
+		what = append(what, "e-mail")
+	}
+	if u.DisplayName != before.DisplayName {
+		what = append(what, "display name")
+	}
+	if u.Note != before.Note {
+		what = append(what, "note")
+	}
+	if u.IsAdmin != before.IsAdmin {
+		what = append(what, "administrator: "+yes(u.IsAdmin))
+	}
+	if u.Disabled != before.Disabled {
+		what = append(what, "disabled: "+yes(u.Disabled))
+	}
+	if u.GroupID != before.GroupID {
+		name := s.st.GroupName(u.GroupID)
+		if name == "" {
+			name = "none"
+		}
+		what = append(what, "group: "+name)
+	}
+	if u.ExpiresAt != before.ExpiresAt {
+		if u.ExpiresAt == 0 {
+			what = append(what, "no end date")
+		} else {
+			what = append(what, "ends "+time.Unix(u.ExpiresAt, 0).UTC().Format("2006-01-02"))
+		}
+	}
+	if in.ResetTOTP {
+		what = append(what, "two-step sign-in reset")
+	}
+	s.change(c, "user.update", u.Username, strings.Join(what, "; "))
 	c.done()
 }
 
@@ -775,6 +960,7 @@ func (s *Server) cUserPassword(c *consoleCtx) {
 	if c.err(s.st.SetPassword(u.ID, in.Password, keep)) {
 		return
 	}
+	s.change(c, "user.password", u.Username, "set by an administrator")
 	c.done()
 }
 
@@ -794,6 +980,7 @@ func (s *Server) cUserDelete(c *consoleCtx) {
 	if c.err(s.st.DeleteUser(u.ID)) {
 		return
 	}
+	s.change(c, "user.delete", u.Username, "")
 	c.done()
 }
 
@@ -827,14 +1014,21 @@ func (s *Server) cGroupPut(c *consoleCtx) {
 	if c.err(s.st.SaveGroup(g)) {
 		return
 	}
+	kind := "regular"
+	if g.Shared {
+		kind = "shared"
+	}
+	s.change(c, "group.save", g.Name, kind)
 	c.ok(map[string]any{"group": g})
 }
 
 func (s *Server) cGroupDelete(c *consoleCtx) {
 	id, _ := strconv.ParseInt(c.r.PathValue("id"), 10, 64)
+	name := s.st.GroupName(id)
 	if c.err(s.st.DeleteGroup(id)) {
 		return
 	}
+	s.change(c, "group.delete", name, "")
 	c.done()
 }
 
@@ -860,6 +1054,7 @@ func (s *Server) cSessionDelete(c *consoleCtx) {
 	if c.err(s.st.DeleteTokenByID(c.r.PathValue("id"), scope)) {
 		return
 	}
+	s.change(c, "session.end", c.r.PathValue("id"), "")
 	c.done()
 }
 
@@ -879,6 +1074,7 @@ func (s *Server) cTokenCreate(c *consoleCtx) {
 	if c.err(err) {
 		return
 	}
+	s.change(c, "token.create", in.Name, "API token of "+c.user.Username)
 	c.ok(map[string]string{"token": tok})
 }
 
@@ -955,6 +1151,7 @@ func (s *Server) cSettings(c *consoleCtx) {
 		"strategy":      strategyOptions(s.st.Setting(keyStrategy)),
 		"oidc":          ps,
 		"oidc_callback": s.publicURL(c.r) + oidcCallbackPath,
+		"mail":          s.mailSettings(),
 	})
 }
 
@@ -1034,23 +1231,76 @@ func (s *Server) cSettingsPut(c *consoleCtx) {
 			}
 		}
 	}
+	if raw, ok := in["mail"]; ok {
+		var m struct {
+			Host, Port, Security, User, From string
+			Password                         string
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			c.fail(http.StatusBadRequest, "the mail settings are not readable")
+			return
+		}
+		if err := s.saveMailSettings(m); err != nil {
+			c.fail(http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	s.change(c, "settings.update", strings.Join(keys, ", "), "")
 	c.done()
 }
 
+// cleanDomains reads a list of e-mail domains as typed (commas, spaces, with
+// or without @) into lower-case names.
+func cleanDomains(raw string) ([]string, error) {
+	out := []string{}
+	for _, d := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t' }) {
+		d = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(d), "@"))
+		if d == "" {
+			continue
+		}
+		if !domainName.MatchString(d) {
+			return nil, errors.New("not an e-mail domain: " + d)
+		}
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+var domainName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+
 func (s *Server) cOIDCPut(c *consoleCtx) {
 	var in struct {
-		Issuer       string
-		ClientID     string `json:"client_id"`
-		ClientSecret string `json:"client_secret"`
-		Scopes       string
-		AutoRegister bool `json:"auto_register"`
-		LinkByEmail  bool `json:"link_by_email"`
+		Issuer         string
+		ClientID       string `json:"client_id"`
+		ClientSecret   string `json:"client_secret"`
+		Scopes         string
+		AutoRegister   bool   `json:"auto_register"`
+		LinkByEmail    bool   `json:"link_by_email"`
+		AllowedDomains string `json:"allowed_domains"`
+		DefaultGroupID int64  `json:"default_group_id"`
 	}
 	if !c.body(&in) {
 		return
 	}
 	p := &store.OIDCProvider{Name: strings.ToLower(strings.TrimSpace(c.r.PathValue("name"))), Issuer: strings.TrimRight(strings.TrimSpace(in.Issuer), "/"),
-		ClientID: strings.TrimSpace(in.ClientID), ClientSecret: strings.TrimSpace(in.ClientSecret), Scopes: strings.TrimSpace(in.Scopes), AutoRegister: in.AutoRegister, LinkByEmail: in.LinkByEmail}
+		ClientID: strings.TrimSpace(in.ClientID), ClientSecret: strings.TrimSpace(in.ClientSecret), Scopes: strings.TrimSpace(in.Scopes), AutoRegister: in.AutoRegister, LinkByEmail: in.LinkByEmail, DefaultGroupID: in.DefaultGroupID}
+	domains, err := cleanDomains(in.AllowedDomains)
+	if err != nil {
+		c.fail(http.StatusBadRequest, err.Error())
+		return
+	}
+	p.AllowedDomains = strings.Join(domains, ", ")
+	if p.DefaultGroupID != 0 && s.st.GroupName(p.DefaultGroupID) == "" {
+		c.fail(http.StatusBadRequest, "the group for new accounts does not exist")
+		return
+	}
 	if p.Scopes == "" && isGitHub(p) {
 		p.Scopes = "read:user user:email"
 	}
@@ -1058,6 +1308,20 @@ func (s *Server) cOIDCPut(c *consoleCtx) {
 		return
 	}
 	s.oidc.forget(p.Name)
+	opts := []string{p.Issuer}
+	if p.AutoRegister {
+		opts = append(opts, "creates accounts")
+	}
+	if p.LinkByEmail {
+		opts = append(opts, "finds accounts by e-mail")
+	}
+	if p.AllowedDomains != "" {
+		opts = append(opts, "domains: "+p.AllowedDomains)
+	}
+	if p.DefaultGroupID != 0 {
+		opts = append(opts, "group: "+s.st.GroupName(p.DefaultGroupID))
+	}
+	s.change(c, "provider.save", p.Name, strings.Join(opts, "; "))
 	c.done()
 }
 
@@ -1067,5 +1331,6 @@ func (s *Server) cOIDCDelete(c *consoleCtx) {
 		return
 	}
 	s.oidc.forget(name)
+	s.change(c, "provider.delete", name, "")
 	c.done()
 }

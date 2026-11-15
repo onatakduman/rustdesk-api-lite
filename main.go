@@ -32,8 +32,11 @@ const usage = `rustdesk-api-lite — accounts, address books and a console for s
 Usage:
   rustdesk-api-lite serve                     run the server
   rustdesk-api-lite user add <name> [-admin]  create an account (password is read from stdin)
+  rustdesk-api-lite user add <name> -invite   create it without a password and print an invite link
   rustdesk-api-lite user passwd <name>        set a password (read from stdin)
   rustdesk-api-lite user list                 list accounts
+  rustdesk-api-lite invite <name> [-hours n]  print a one-time link with which the person sets
+                                              their own password (also a reset; default 72 hours)
   rustdesk-api-lite token add <user> <name>   create an API token for an account (printed once)
   rustdesk-api-lite share <book> <user> <view|edit|full|none>
                                               share an address book with an account
@@ -73,6 +76,8 @@ func main() {
 	listen := fl.String("listen", env("RDL_LISTEN", "127.0.0.1:21114"), "")
 	trust := fl.Bool("trust-proxy", env("RDL_TRUST_PROXY", "") != "", "")
 	admin := fl.Bool("admin", false, "")
+	invite := fl.Bool("invite", false, "")
+	hours := fl.Int("hours", 0, "")
 
 	// Flags may come before or after the positional arguments.
 	var pos []string
@@ -102,7 +107,18 @@ func main() {
 	case "serve":
 		serve(open(), *listen, *trust)
 	case "user":
-		userCmd(open(), pos, *admin)
+		userCmd(open(), pos, *admin, *invite, *hours)
+	case "invite":
+		if len(pos) != 1 {
+			log.Fatal("usage: rustdesk-api-lite invite <name> [-hours n]")
+		}
+		st := open()
+		defer st.Close()
+		u, err := st.UserByUsername(pos[0])
+		if err != nil {
+			log.Fatalf("no such user: %s", pos[0])
+		}
+		printInvite(st, u, *hours)
 	case "token":
 		tokenCmd(open(), pos)
 	case "share":
@@ -191,6 +207,7 @@ func tokenCmd(st *store.Store, pos []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	logChange(st, "token.create", strings.TrimSpace(pos[2]), "API token of "+u.Username)
 	fmt.Println(tok)
 }
 
@@ -229,6 +246,7 @@ func shareCmd(st *store.Store, pos []string) {
 	if err := st.SetShares(guid, kept); err != nil {
 		log.Fatal(err)
 	}
+	logChange(st, "book.shares", pos[0], u.Username+": "+strings.ToLower(pos[2]))
 	if rule == 0 {
 		fmt.Printf("%s: %s no longer has access\n", pos[0], u.Username)
 		return
@@ -257,6 +275,7 @@ func configCmd(st *store.Store, pos []string) {
 				if err := st.SetSetting(c.key, strings.TrimSpace(pos[2])); err != nil {
 					log.Fatal(err)
 				}
+				logChange(st, "settings.update", c.key, "")
 				fmt.Printf("%s=%s\n", c.name, strings.TrimSpace(pos[2]))
 				return
 			}
@@ -279,7 +298,30 @@ func readPassword() string {
 	return pw
 }
 
-func userCmd(st *store.Store, pos []string, admin bool) {
+// logChange records what the command line changed in the log of changes.
+func logChange(st *store.Store, action, target, detail string) {
+	st.AddChange(&store.Change{Actor: "command line", Action: action, Target: target, Detail: detail})
+}
+
+// printInvite makes an invite link for the account and prints it.
+func printInvite(st *store.Store, u *store.User, hours int) {
+	base := st.Setting("public_url")
+	if base == "" {
+		log.Fatal("the link needs the public address of the server; set it first: rustdesk-api-lite config set public-url https://…")
+	}
+	if !u.Active() {
+		log.Fatalf("the account %s is disabled or has ended", u.Username)
+	}
+	hours = server.InviteHours(u, hours)
+	secret, _, err := st.NewInvite(u.ID, "command line", int64(hours)*3600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	logChange(st, "user.invite", u.Username, fmt.Sprintf("valid %d h", hours))
+	fmt.Println(server.InviteURL(base, secret))
+}
+
+func userCmd(st *store.Store, pos []string, admin, invite bool, hours int) {
 	defer st.Close()
 	if len(pos) == 1 && pos[0] == "list" {
 		us, err := st.ListUsers()
@@ -294,6 +336,8 @@ func userCmd(st *store.Store, pos []string, admin bool) {
 			state := ""
 			if u.Disabled {
 				state = " (disabled)"
+			} else if u.Expired {
+				state = " (ended)"
 			}
 			fmt.Printf("%-24s %-6s %s%s\n", u.Username, role, u.Email, state)
 		}
@@ -304,9 +348,23 @@ func userCmd(st *store.Store, pos []string, admin bool) {
 	}
 	switch pos[0] {
 	case "add":
-		if err := st.CreateUser(&store.User{Username: pos[1], IsAdmin: admin}, readPassword(), ""); err != nil {
+		u := &store.User{Username: pos[1], IsAdmin: admin}
+		if invite {
+			// No password at all: the person chooses one through the link.
+			if st.Setting("public_url") == "" {
+				log.Fatal("the link needs the public address of the server; set it first: rustdesk-api-lite config set public-url https://…")
+			}
+			if err := st.CreateUser(u, "", ""); err != nil {
+				log.Fatal(err)
+			}
+			logChange(st, "user.create", u.Username, "")
+			printInvite(st, u, hours)
+			return
+		}
+		if err := st.CreateUser(u, readPassword(), ""); err != nil {
 			log.Fatal(err)
 		}
+		logChange(st, "user.create", u.Username, "")
 		fmt.Printf("created %s\n", pos[1])
 	case "passwd":
 		u, err := st.UserByUsername(pos[1])
@@ -316,6 +374,7 @@ func userCmd(st *store.Store, pos []string, admin bool) {
 		if err := st.SetPassword(u.ID, readPassword(), ""); err != nil {
 			log.Fatal(err)
 		}
+		logChange(st, "user.password", u.Username, "")
 		fmt.Printf("password of %s changed; all their sessions were signed out\n", u.Username)
 	default:
 		log.Fatal("usage: rustdesk-api-lite user add|passwd <name>   |   user list")

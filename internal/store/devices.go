@@ -252,19 +252,36 @@ type OIDCProvider struct {
 	// LinkByEmail signs a person in to the existing account that has the same
 	// verified e-mail address. Only for providers trusted to verify addresses.
 	LinkByEmail bool `json:"link_by_email"`
+	// AllowedDomains limits what the provider does by itself (finding an account
+	// by e-mail, creating one) to verified addresses at these domains: a
+	// comma-separated list, empty for no limit. DefaultGroupID is the user
+	// group of the accounts it creates (0 = none).
+	AllowedDomains string `json:"allowed_domains"`
+	DefaultGroupID int64  `json:"default_group_id"`
+}
+
+const providerCols = "name, issuer, client_id, client_secret, scopes, auto_register, link_by_email, allowed_domains, default_group_id"
+
+func scanProvider(sc interface{ Scan(...any) error }) (*OIDCProvider, error) {
+	p := &OIDCProvider{}
+	err := sc.Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister, &p.LinkByEmail, &p.AllowedDomains, &p.DefaultGroupID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return p, err
 }
 
 // OIDCProviders lists the configured providers.
 func (s *Store) OIDCProviders() ([]*OIDCProvider, error) {
-	rows, err := s.db.Query("SELECT name, issuer, client_id, client_secret, scopes, auto_register, link_by_email FROM oidc_providers ORDER BY name")
+	rows, err := s.db.Query("SELECT " + providerCols + " FROM oidc_providers ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []*OIDCProvider{}
 	for rows.Next() {
-		p := &OIDCProvider{}
-		if err := rows.Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister, &p.LinkByEmail); err != nil {
+		p, err := scanProvider(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -274,13 +291,7 @@ func (s *Store) OIDCProviders() ([]*OIDCProvider, error) {
 
 // OIDCProvider loads one provider.
 func (s *Store) OIDCProvider(name string) (*OIDCProvider, error) {
-	p := &OIDCProvider{}
-	err := s.db.QueryRow("SELECT name, issuer, client_id, client_secret, scopes, auto_register, link_by_email FROM oidc_providers WHERE name = ?", name).
-		Scan(&p.Name, &p.Issuer, &p.ClientID, &p.ClientSecret, &p.Scopes, &p.AutoRegister, &p.LinkByEmail)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return p, err
+	return scanProvider(s.db.QueryRow("SELECT "+providerCols+" FROM oidc_providers WHERE name = ?", name))
 }
 
 // SaveOIDCProvider inserts or updates a provider. An empty secret keeps the stored one.
@@ -291,11 +302,12 @@ func (s *Store) SaveOIDCProvider(p *OIDCProvider) error {
 	if p.Scopes == "" {
 		p.Scopes = "openid email profile"
 	}
-	_, err := s.db.Exec(`INSERT INTO oidc_providers(name, issuer, client_id, client_secret, scopes, auto_register, link_by_email) VALUES(?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO oidc_providers(`+providerCols+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET issuer = excluded.issuer, client_id = excluded.client_id,
 			client_secret = CASE WHEN excluded.client_secret <> '' THEN excluded.client_secret ELSE client_secret END,
-			scopes = excluded.scopes, auto_register = excluded.auto_register, link_by_email = excluded.link_by_email`,
-		p.Name, p.Issuer, p.ClientID, p.ClientSecret, p.Scopes, p.AutoRegister, p.LinkByEmail)
+			scopes = excluded.scopes, auto_register = excluded.auto_register, link_by_email = excluded.link_by_email,
+			allowed_domains = excluded.allowed_domains, default_group_id = excluded.default_group_id`,
+		p.Name, p.Issuer, p.ClientID, p.ClientSecret, p.Scopes, p.AutoRegister, p.LinkByEmail, p.AllowedDomains, p.DefaultGroupID)
 	return err
 }
 

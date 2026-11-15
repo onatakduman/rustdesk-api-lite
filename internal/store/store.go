@@ -226,6 +226,29 @@ UPDATE oidc_providers SET link_by_email = 1;
 ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
 `,
+	// 6: invite links, a log of changes, accounts with an end date, provider limits
+	`
+CREATE TABLE invites (
+  hash       TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX invites_user ON invites(user_id);
+CREATE TABLE change_log (
+  rowid_ INTEGER PRIMARY KEY,
+  at     INTEGER NOT NULL,
+  actor  TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  ip     TEXT NOT NULL DEFAULT ''
+);
+ALTER TABLE users ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE oidc_providers ADD COLUMN allowed_domains TEXT NOT NULL DEFAULT '';
+ALTER TABLE oidc_providers ADD COLUMN default_group_id INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 func (s *Store) migrate() error {

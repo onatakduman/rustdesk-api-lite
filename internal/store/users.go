@@ -25,16 +25,24 @@ type User struct {
 	// MustChangePassword is set for the account of the first start: until the
 	// password is changed, the account can do nothing else.
 	MustChangePassword bool `json:"must_change_password"`
+	// ExpiresAt ends the account at that unix time (0 = never): from then on it
+	// cannot sign in and its sessions stop working. Expired says that it has.
+	ExpiresAt int64 `json:"expires_at"`
+	Expired   bool  `json:"expired"`
 }
 
-const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> '', group_id, must_change_password"
+// Active tells whether the account may be used: not disabled and not ended.
+func (u *User) Active() bool { return !u.Disabled && !u.Expired }
+
+const userCols = "id, username, email, display_name, is_admin, disabled, note, created_at, password_hash <> '', totp_secret <> '', group_id, must_change_password, expires_at"
 
 func scanUser(sc interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
-	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP, &u.GroupID, &u.MustChangePassword)
+	err := sc.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.IsAdmin, &u.Disabled, &u.Note, &u.CreatedAt, &u.HasPassword, &u.HasTOTP, &u.GroupID, &u.MustChangePassword, &u.ExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	u.Expired = u.ExpiresAt != 0 && u.ExpiresAt <= now()
 	return u, err
 }
 
@@ -60,8 +68,8 @@ func (s *Store) CreateUser(u *User, password, passwordHash string) error {
 		}
 		passwordHash = h
 	}
-	res, err := s.db.Exec(`INSERT INTO users(username, email, display_name, password_hash, is_admin, disabled, note, created_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, u.Username, u.Email, u.DisplayName, passwordHash, u.IsAdmin, u.Disabled, u.Note, now())
+	res, err := s.db.Exec(`INSERT INTO users(username, email, display_name, password_hash, is_admin, disabled, note, created_at, group_id, expires_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, u.Username, u.Email, u.DisplayName, passwordHash, u.IsAdmin, u.Disabled, u.Note, now(), u.GroupID, u.ExpiresAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return errors.New("username already exists")
@@ -107,6 +115,9 @@ func (s *Store) CheckPassword(username, password string) (*User, error) {
 	if u.Disabled {
 		return nil, errors.New("account is disabled")
 	}
+	if u.Expired {
+		return nil, errors.New("this account has ended")
+	}
 	return u, nil
 }
 
@@ -138,14 +149,14 @@ func (s *Store) CountUsers() int {
 // CountAdmins returns the number of enabled administrators.
 func (s *Store) CountAdmins() int {
 	var n int
-	_ = s.db.QueryRow("SELECT COUNT(*) FROM users WHERE is_admin = 1 AND disabled = 0").Scan(&n)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM users WHERE is_admin = 1 AND disabled = 0 AND (expires_at = 0 OR expires_at > ?)", now()).Scan(&n)
 	return n
 }
 
 // UpdateUser saves the editable profile fields.
 func (s *Store) UpdateUser(u *User) error {
-	_, err := s.db.Exec(`UPDATE users SET email = ?, display_name = ?, is_admin = ?, disabled = ?, note = ?, group_id = ? WHERE id = ?`,
-		u.Email, u.DisplayName, u.IsAdmin, u.Disabled, u.Note, u.GroupID, u.ID)
+	_, err := s.db.Exec(`UPDATE users SET email = ?, display_name = ?, is_admin = ?, disabled = ?, note = ?, group_id = ?, expires_at = ? WHERE id = ?`,
+		u.Email, u.DisplayName, u.IsAdmin, u.Disabled, u.Note, u.GroupID, u.ExpiresAt, u.ID)
 	if err == nil && u.Disabled {
 		_, err = s.db.Exec("DELETE FROM tokens WHERE user_id = ?", u.ID)
 	}
@@ -274,7 +285,7 @@ func (s *Store) UserByToken(plain string) (*User, *Token, error) {
 		return nil, nil, ErrNotFound
 	}
 	u, err := s.UserByID(t.UserID)
-	if err != nil || u.Disabled {
+	if err != nil || !u.Active() {
 		return nil, nil, ErrNotFound
 	}
 	if n-t.LastUsedAt > 60 {

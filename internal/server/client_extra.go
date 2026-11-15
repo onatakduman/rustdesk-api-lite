@@ -72,7 +72,7 @@ type enrolment struct {
 // so a device cannot take itself away from its owner or group.
 func (s *Server) enrol(d *store.Device, e enrolment, force bool) {
 	if e.User != "" && (force || d.UserID == 0) {
-		if u, err := s.st.UserByUsername(e.User); err == nil && !u.Disabled {
+		if u, err := s.st.UserByUsername(e.User); err == nil && u.Active() {
 			_ = s.st.SetDeviceOwner(d.ID, u.ID)
 		}
 	}
